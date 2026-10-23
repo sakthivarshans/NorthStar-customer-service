@@ -1,0 +1,6 @@
+{
+  "name": "Northstar Customer Support",
+  "description": "Enterprise customer support portal powered by Retrieval-Augmented Generation (RAG) with grounded documentation citations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
