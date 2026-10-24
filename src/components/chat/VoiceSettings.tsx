@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { VoicePreferences } from '../../types';
+import { apiService } from '../../services/api';
 import { SpeechStatus } from './SpeechStatus';
 import { X, Sliders, Volume2, Mic, Clock, Save } from 'lucide-react';
 
@@ -17,6 +18,12 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
   onSavePreferences
 }) => {
   const [formData, setFormData] = useState<VoicePreferences>(preferences);
+  const [voices, setVoices] = useState<{ id: string; label: string }[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    apiService.getSpeechServiceStatus().then((st) => setVoices(st.approved_voices ?? []));
+  }, [isOpen]);
 
   useEffect(() => {
     setFormData(preferences);
@@ -115,7 +122,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
           {/* Preferred Voice Selection */}
           <div>
             <label htmlFor="settings-preferred-voice" className="block font-semibold text-slate-800 mb-1">
-              Preferred Voice (Fish Audio S2.1 Pro)
+              Preferred Voice (Fish Audio)
             </label>
             <select
               id="settings-preferred-voice"
@@ -125,10 +132,10 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
               }
               className="w-full bg-white border border-slate-300 rounded px-3 py-2 text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-blue-600"
             >
-              <option value="fish-audio-s2-claire">Northstar Claire (Professional English, Female)</option>
-              <option value="fish-audio-s2-david">Northstar David (Warm Executive, Male)</option>
-              <option value="fish-audio-s2-alex">Northstar Alex (Neutral Clear, Non-binary)</option>
-              <option value="default">Backend Default Voice</option>
+              <option value="default">Provider default voice</option>
+              {voices.map((v) => (
+                <option key={v.id} value={v.id}>{v.label}</option>
+              ))}
             </select>
           </div>
 
