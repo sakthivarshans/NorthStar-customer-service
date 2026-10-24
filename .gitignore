@@ -6,3 +6,13 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# backend
+backend/.env
+backend/data/uploads/
+backend/data/documents.json
+backend/data/*.db
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
