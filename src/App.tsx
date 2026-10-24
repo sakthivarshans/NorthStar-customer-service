@@ -78,7 +78,7 @@ export default function App() {
     setVoicePreferences(updated);
   };
 
-  const handleSendMessage = async (textToSend?: string) => {
+  const handleSendMessage = async (textToSend?: string, opts?: { retryBase?: ChatMessage[] }) => {
     const rawText = textToSend !== undefined ? textToSend : inputText;
     const text = rawText.trim();
     if (!text || isLoading) return;
@@ -87,22 +87,26 @@ export default function App() {
     setInputText('');
     setIsVoiceTranscribed(false);
 
-    const userMessage: ChatMessage = {
-      id: `usr-${Date.now()}`,
-      role: 'user',
-      content: text,
-      timestamp: new Date().toISOString()
-    };
+    // On retry the user's message is already in the base list: never append it twice.
+    const baseMessages = opts?.retryBase ?? currentConversation.messages;
+    const userMessage: ChatMessage = opts?.retryBase
+      ? baseMessages[baseMessages.length - 1]
+      : {
+          id: `usr-${Date.now()}`,
+          role: 'user',
+          content: text,
+          timestamp: new Date().toISOString()
+        };
 
     // Determine conversation title if this is first message
     const updatedTitle =
-      currentConversation.messages.length === 0
+      baseMessages.length <= 1
         ? text.length > 40
           ? `${text.slice(0, 40)}...`
           : text
         : currentConversation.title;
 
-    const updatedMessages = [...currentConversation.messages, userMessage];
+    const updatedMessages = opts?.retryBase ? baseMessages : [...baseMessages, userMessage];
 
     const updatedConv: Conversation = {
       ...currentConversation,
@@ -119,11 +123,12 @@ export default function App() {
     try {
       const response = await apiService.sendChat({
         message: text,
-        conversation_id: currentConversation.id
+        conversation_id: currentConversation.id,
+        user_message_id: userMessage.id
       });
 
       const assistantMessage: ChatMessage = {
-        id: `asst-${Date.now()}`,
+        id: response.message_id || `asst-${Date.now()}`,
         role: 'assistant',
         content: response.answer,
         timestamp: new Date().toISOString(),
@@ -185,19 +190,11 @@ export default function App() {
   };
 
   const handleRetry = (failedMessage: ChatMessage) => {
-    const msgIndex = currentConversation.messages.findIndex((m) => m.id === failedMessage.id);
-    if (msgIndex <= 0) return;
-
-    const previousUserMsg = currentConversation.messages[msgIndex - 1];
-    if (previousUserMsg.role !== 'user') return;
-
-    const cleanedMessages = currentConversation.messages.filter((m) => m.id !== failedMessage.id);
-    setCurrentConversation({
-      ...currentConversation,
-      messages: cleanedMessages
-    });
-
-    handleSendMessage(previousUserMsg.content);
+    const msgs = currentConversation.messages;
+    const idx = msgs.findIndex((m) => m.id === failedMessage.id);
+    if (idx <= 0 || msgs[idx - 1].role !== 'user') return;
+    // Drop the failed reply (and anything after it), keep the original user message, ask again.
+    handleSendMessage(msgs[idx - 1].content, { retryBase: msgs.slice(0, idx) });
   };
 
   const handleFeedback = async (messageId: string, feedback: 'helpful' | 'unhelpful') => {
