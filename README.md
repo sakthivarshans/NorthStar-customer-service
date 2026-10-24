@@ -1,235 +1,124 @@
-# Northstar Customer Support with RAG & Voice
+# Northstar Customer Support Agent
 
-A production-grade customer support web application for **Northstar Technologies Inc.**, featuring Retrieval-Augmented Generation (RAG) grounding, verifiable source citations, full product catalog & pricing comparison, self-service help center, knowledge-base administration, and **Voice Input (Local Faster-Whisper base.en STT) & Spoken Audio Output (Fish Audio S2.1 Pro TTS)**.
+Grounded customer-support assistant for **Northstar Workspace** (fictional demo company) with voice input and voice output.
 
----
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 + TypeScript + Vite + Tailwind (`/src`) |
+| Backend | FastAPI (`/backend`) |
+| LLM | **NVIDIA Nemotron 3.5 Super VL (free)** via OpenRouter, model `nvidia/nemotron-3.5-super-vl:free` |
+| RAG | Section-aware chunking + BM25 over `backend/data/knowledge/` (no embedding service) |
+| STT | **Faster-Whisper `base.en`**, running locally inside the backend (no API key) |
+| TTS | **Fish Audio** `s2.1-pro-free` via the hosted API (server-side key only) |
 
-## 1. Key Features
+Voice flow: record → `POST /speech/transcribe` (local Whisper) → transcript shown for **review/edit** → customer submits through the normal `POST /chat` → retrieval + Nemotron produce a cited answer → optional `POST /speech/synthesize` speaks *that same answer*. There is one chat pipeline; voice never bypasses it. See [docs/SPEECH_ARCHITECTURE.md](docs/SPEECH_ARCHITECTURE.md).
 
-- **Customer Support Agent**:
-  - Grounded answering based on official Northstar company documentation.
-  - Transparent evidence statuses:
-    - *Based on company documentation* (verified RAG retrieval).
-    - *Some details could not be verified* (partial match).
-    - *Human support recommended* (out-of-scope, policy ambiguity, or explicit user request).
-  - Source citation drawers showing exact document titles, sections, relevance scores, and retrieved text excerpts.
-  - Suggested questions covering products, pricing, cancellations, refunds, and support escalation.
-  - Enter to send, Shift+Enter for newlines, loading states, duplicate submission prevention, and user scroll lock preservation.
-  - Answer copying and helpful/not-helpful feedback controls.
+## Quick start
 
-- **Local Speech-to-Text (STT) via Faster-Whisper `base.en`**:
-  - **Local Host Execution**: Speech recognition executes locally on the developer's computer using Faster-Whisper with the English-only `base.en` model (downloaded and cached on first load). **No Colab, OpenRouter, or remote STT dependencies**.
-  - **MediaRecorder Flow**: Reusable `MicrophoneButton` and `AudioRecorder` with explicit state machine (`idle`, `requesting_permission`, `recording`, `stopping`, `uploading`, `transcribing`, `ready`, `failed`, `cancelled`).
-  - **Transcript Review**: Speech recognised by `POST /api/v1/speech/transcribe` is displayed in `TranscriptReview` inside the message composer. The customer can edit the text, record again, cancel, or submit to support.
-  - **Guardrails**: Configurable recording duration limits (30s, 60s, 120s), 10 MB audio file limit, and full microphone track cleanup.
-
-- **Text-to-Speech (TTS) via Fish Audio S2.1 Pro**:
-  - **Grounded Speech Playback**: Assistant answers feature an accessible `AudioPlayer` powered by Fish Audio S2.1 Pro via backend `POST /api/v1/speech/synthesize`.
-  - **Formatting Sanitization**: Markdown tables, asterisks, bullet points, and code backticks are converted into natural spoken prose while strictly preserving all underlying numbers, pricing, and factual details.
-  - **Audio Controls**: Generate audio, Play, Pause, Resume, Stop, Replay, seekable progress slider, duration display, loading states, and error recovery with retry.
-  - **Voice Preferences**: Configurable through `VoiceSettings` (enable/disable voice responses, auto-play responses toggle with default: off, preferred voice identifier, and recording duration).
-
-- **Dual Mode Architecture**:
-  - **Demo Mode**: Built-in deterministic RAG retrieval engine over the authoritative Northstar knowledge document. Allows full testing of citations, confidence statuses, conversation management, document uploads, and realistic voice STT/TTS simulation without requiring an external server.
-  - **Live Mode**: Dispatches real HTTP requests to the configured RAG backend API (`VITE_API_BASE_URL`). Handles network latency, connection diagnostics, and retry controls gracefully.
-
-- **Products & Pricing Catalog**:
-  - Full catalog of Northstar products: *Northstar Cloud Suite*, *Northstar Analytics Pro*, *Northstar Team Sync*, and *Northstar Enterprise Shield*.
-  - Tier schedule for *Starter* ($29/mo), *Professional* ($79/mo), and *Enterprise* ($199/mo).
-  - Monthly vs Annual billing switch (~18% annual discount).
-  - Detailed plan feature comparison matrix.
-  - One-click "Ask Support" buttons that route to the agent.
-
-- **Help Center & FAQs**:
-  - Searchable knowledge base categorised by Products, Billing, Account/Security, and Policies.
-  - Strict separation between static approved FAQs and live RAG retrieval.
-  - Direct human support escalation cards with SLA commitments.
-
-- **Knowledge Base Administration (`/admin/knowledge`)**:
-  - Drag-and-drop document upload (PDF, TXT, Markdown, DOCX) with 15 MB file size validation.
-  - Document management table: status badges (`indexed`, `processing`, `queued`, `failed`), chunk counts, file sizes, and timestamps.
-  - Actions: Manual reindexing and delete with confirmation dialog.
-  - Real-time indexing logs panel with level filtering (`info`, `warning`, `error`).
-  - System statistics: Document count, chunk count, vector index size, and retrieval latency.
-
-- **Conversation History**:
-  - Session list with title, message count, and last updated timestamps.
-  - Client-side search and keyword filtering.
-  - Resume session or delete session with confirmation.
-
----
-
-## 2. Environment Configuration
-
-Copy `.env.example` to `.env`:
+Requirements: Python 3.10+, Node 20+, an [OpenRouter key](https://openrouter.ai/settings/keys), optionally a [Fish Audio key](https://fish.audio/app/api-keys).
 
 ```bash
-# Base URL for RAG & Speech backend API (defaults to http://localhost:8000/api/v1)
-VITE_API_BASE_URL="http://localhost:8000/api/v1"
-```
+# 1) Backend
+cd backend
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env                                   # then set OPENROUTER_API_KEY (and FISH_API_KEY for voice replies)
+python scripts/download_model.py                       # optional: pre-download Whisper base.en (see "Model cache")
+uvicorn app.main:app --port 8000
 
-You can also dynamically override the backend base URL at runtime through the **Configure URL** button on the top diagnostics banner.
-
----
-
-## 3. Local Development
-
-```bash
-# Install dependencies
+# 2) Frontend (new terminal, repo root)
 npm install
-
-# Run Vite development server on port 3000
-npm run dev
-
-# Run TypeScript linter
-npm run lint
-
-# Build production bundle
-npm run build
+cp .env.example .env                                   # VITE_API_BASE_URL defaults to http://localhost:8000/api/v1
+npm run dev                                            # http://localhost:3000
 ```
 
----
+The app opens in **Live** mode. The top-bar switch offers an offline "Demo" mode (keyword lookup over the approved FAQ only; no voice, no admin).
 
-## 4. Reusable Voice Components
+### Verify each piece
 
-The frontend provides clean, modular components designed for reuse:
+```bash
+curl localhost:8000/api/v1/health              # llm_configured, stt_state, tts_configured, documents_indexed
+curl localhost:8000/api/v1/speech/status       # stt_state: not_loaded | loading | ready | failed (+ stt_error)
 
-- **`MicrophoneButton`** (`src/components/chat/MicrophoneButton.tsx`):
-  Accessible button triggering the recording workflow, with hover, focus, disabled, and active pulsing states.
-- **`AudioRecorder`** (`src/components/chat/AudioRecorder.tsx`):
-  Modal/drawer managing the MediaRecorder state machine, elapsed timer, sound wave animation, stop and cancel actions, and local Faster-Whisper base.en upload.
-- **`TranscriptReview`** (`src/components/chat/TranscriptReview.tsx`):
-  Review banner rendered above the message composer with "Record Again", "Discard", and "Submit Inquiry" actions.
-- **`AudioPlayer`** (`src/components/chat/AudioPlayer.tsx`):
-  Accessible audio player for assistant responses with Play, Pause, Resume, Stop, Replay, slider seeking, and Fish Audio S2.1 Pro error handling.
-- **`VoiceSettings`** (`src/components/chat/VoiceSettings.tsx`):
-  Compact modal for configuring voice responses, auto-play (default: off), preferred voice ID, and max duration limits.
-- **`SpeechStatus`** (`src/components/chat/SpeechStatus.tsx`):
-  Diagnostic badge showing real-time health of local Faster-Whisper and Fish Audio TTS.
+# transcription (any short speech recording: webm, ogg, wav, mp3, m4a, flac)
+curl -F "file=@question.wav" localhost:8000/api/v1/speech/transcribe
 
----
+# chat
+curl -H 'content-type: application/json' -d '{"message":"How much is the Professional plan?"}' localhost:8000/api/v1/chat
 
-## 5. Backend API Contract Specifications
+# TTS speaks only answers the assistant produced; pass an answer from /chat:
+curl -H 'content-type: application/json' -d '{"text":"<answer text>","conversation_id":"<id>"}' \
+     localhost:8000/api/v1/speech/synthesize --output reply.mp3
+```
 
-The frontend connects through a dedicated typed client layer (`src/services/api.ts`) implementing these endpoint contracts:
+## API (all under `/api/v1`)
 
-### Core RAG & Support Endpoints
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/health` | Service + model readiness |
+| POST | `/chat` | `{message, conversation_id?, user_message_id?}` → `{answer, conversation_id, message_id, sources[], grounded, needs_human, evidence_status}` |
+| GET/DELETE | `/conversations`, `/conversations/{id}` | SQLite-persisted history |
+| POST | `/feedback` | helpful / unhelpful |
+| GET | `/speech/status` | STT model state, TTS config, approved voices |
+| POST | `/speech/transcribe` | multipart field `file` → `{text, language, duration, model, inference_time_ms, segments[]}` |
+| POST | `/speech/synthesize` | `{text, conversation_id?, voice_id?}` → audio bytes (`audio/mpeg`) |
+| GET/POST/DELETE | `/admin/documents[...]`, `/admin/stats`, `/admin/logs` | Upload txt/md/pdf/docx; protected in production |
 
-1. **`GET /health`**
-   - Response: `{ "status": "healthy", "version": "1.0.0" }`
+Errors are always `{"detail": "...", "code": "..."}` (e.g. `stt_model_download_failed`, `tts_rate_limited`, `llm_rate_limited`).
 
-2. **`POST /chat`**
-   - Request: `{ "message": "string", "conversation_id": "optional-id" }`
-   - Response:
-     ```json
-     {
-       "answer": "string",
-       "conversation_id": "string",
-       "sources": [
-         {
-           "id": "src-1",
-           "documentTitle": "string",
-           "documentType": "pdf | txt | md | docx",
-           "section": "string",
-           "excerpt": "string",
-           "relevanceScore": 0.95,
-           "lastUpdated": "2026-10-10"
-         }
-       ],
-       "grounded": true,
-       "needs_human": false,
-       "evidence_status": "grounded | partial | uncertain"
-     }
-     ```
+## Configuration
 
-3. **`GET /conversations`**
-   - Response: `Conversation[]`
+All settings are in `backend/.env.example`. Key ones:
 
-4. **`GET /conversations/{id}`**
-   - Response: `Conversation`
+```
+STT_PROVIDER=faster_whisper_local   STT_MODEL=base.en   STT_DEVICE=cpu   STT_COMPUTE_TYPE=int8   STT_LANGUAGE=en
+TTS_PROVIDER=fish_audio   FISH_API_KEY=   FISH_TTS_MODEL=s2.1-pro-free   FISH_TTS_FORMAT=mp3   FISH_TTS_TIMEOUT_SECONDS=60
+OPENROUTER_API_KEY=       LLM_MODEL=nvidia/nemotron-3.5-super-vl:free
+```
 
-5. **`DELETE /conversations/{id}`**
-   - Response: `{ "success": true }`
+GPU later: `STT_DEVICE=cuda STT_COMPUTE_TYPE=float16`. Multilingual later: `STT_MODEL=base` (or `small`) and `STT_LANGUAGE=` (empty = auto-detect). `base.en` is **English-only**; it is not suitable for other languages. No API change is needed to switch.
 
-6. **`POST /admin/documents`**
-   - Request: Multipart `FormData` with `files` field.
-   - Response: `AdminDocument[]`
+### Model cache (Faster-Whisper)
 
-7. **`GET /admin/documents`**
-   - Response: `AdminDocument[]`
+* First use downloads `base.en` (roughly 150 MB) from Hugging Face and caches it. Default cache: `~/.cache/huggingface/hub` (Windows: `%USERPROFILE%\.cache\huggingface\hub`). Override with `STT_DOWNLOAD_ROOT=/path`.
+* The model loads **once** at startup in a background task (`STT_PRELOAD=true`); the server accepts requests immediately and `/speech/status` shows `loading` → `ready`. If preload is off it loads lazily on the first request.
+* Pre-download: `python scripts/download_model.py`. Fully offline afterwards: set `STT_LOCAL_FILES_ONLY=true`.
 
-8. **`GET /admin/documents/{id}`**
-   - Response: `AdminDocument`
+## Tests
 
-9. **`POST /admin/documents/{id}/reindex`**
-   - Response: `AdminDocument`
+```bash
+cd backend && pip install -r requirements-dev.txt && pytest          # 47 unit tests, no network or keys needed
+RUN_STT_INTEGRATION=1 pytest -m integration_stt                      # needs the real Whisper model files
+RUN_TTS_INTEGRATION=1 pytest -m integration_tts                      # needs FISH_API_KEY
+RUN_LLM_INTEGRATION=1 pytest -m integration_llm                      # needs OPENROUTER_API_KEY
+npm run lint && npm test && npm run build                            # frontend typecheck, 10 tests, build
+```
 
-10. **`DELETE /admin/documents/{id}`**
-    - Response: `{ "success": true }`
+## Security notes
 
-11. **`POST /feedback`**
-    - Request: `{ "messageId": "string", "conversationId": "string", "feedback": "helpful" | "unhelpful", "comment": "optional" }`
-    - Response: `{ "success": true }`
+* Provider keys exist only in `backend/.env`; the frontend never sees them. `.env` is git-ignored.
+* Audio is validated by **content** (magic bytes + decode probe), not filename/MIME; size, duration, queue depth and inference time are all bounded; temp files are always deleted. Audio and transcripts are never logged.
+* `/speech/synthesize` only speaks text that matches an assistant answer stored by `/chat` (`TTS_REQUIRE_GROUNDED_TEXT=true`), so the Fish Audio key cannot be used as a free general TTS proxy and TTS can never introduce new facts.
+* Set `API_ACCESS_KEY` (clients send `X-API-Key`) and `ADMIN_API_KEY` for deployments. With `APP_ENV=production`, admin routes stay disabled until `ADMIN_API_KEY` is set. A key embedded in a browser bundle is not a secret; for public deployments put the API behind real authentication (SSO / reverse proxy).
+* The free Fish model (`s2.1-pro-free`) has no TTFA or DPA guarantees per Fish Audio's docs; use `s2.1-pro` before sending real customer content to it.
 
-12. **`GET /admin/stats`**
-    - Response:
-      ```json
-      {
-        "totalDocuments": 4,
-        "indexedChunks": 473,
-        "lastIndexedTime": "2026-10-10T09:12:40Z",
-        "systemStatus": "healthy",
-        "vectorIndexSizeMb": 21.28,
-        "averageRetrievalLatencyMs": 82
-      }
-      ```
+## Troubleshooting
 
-### Speech (STT & TTS) Endpoints
+| Symptom | Cause / fix |
+|---|---|
+| `stt_model_download_failed` | No internet on first run and no cache. Run `scripts/download_model.py` on a connected machine, or copy the cache folder; set `STT_LOCAL_FILES_ONLY=true` offline. |
+| `stt_out_of_memory` | Use `STT_MODEL=tiny.en`, keep `STT_MAX_CONCURRENCY=1`, close other apps. |
+| `stt_dependency_missing` | `pip install -r requirements.txt` in the active venv. |
+| Slow transcription | CPU `int8` is the default. Lower `STT_BEAM_SIZE` to 1–3, use `tiny.en`, or move to a GPU (`cuda`/`float16`). Expect the first request after startup to be slowest. |
+| `stt_busy` (429) | More than `STT_MAX_QUEUE` requests waiting; retry after the `Retry-After` seconds. |
+| `no_speech_detected` | Silence or VAD filtered everything; speak closer to the mic or set `STT_VAD_FILTER=false`. |
+| `llm_rate_limited` (429) | Free OpenRouter models have daily/per-minute caps; retry later or add credits. |
+| `llm_empty_answer` | A reasoning model used its token budget thinking; raise `LLM_MAX_TOKENS` or set `LLM_REASONING_EFFORT=low`. |
+| `tts_not_configured` | Set `FISH_API_KEY`. |
+| `tts_auth_failed` / `tts_quota_exceeded` / `tts_rate_limited` | Check the key, account credit, or slow down; text answers are unaffected. |
+| Browser can't reach API | Add your frontend origin to `CORS_ORIGINS`; check `VITE_API_BASE_URL`. |
+| Mic blocked | Browsers allow microphone access only on `localhost` or HTTPS. |
 
-13. **`POST /api/v1/speech/transcribe`** (or `/speech/transcribe`)
-    - Request: Multipart `FormData` with `file: Blob | File` (WebM / Ogg / WAV audio).
-    - Response:
-      ```json
-      {
-        "text": "Recognised speech",
-        "language": "en",
-        "duration": 4.2
-      }
-      ```
-    - Executed locally on the developer's computer using Faster-Whisper with the `base.en` English model (cached on host).
+## Knowledge base
 
-14. **`POST /api/v1/speech/synthesize`** (or `/speech/synthesize`)
-    - Request:
-      ```json
-      {
-        "text": "Clean natural speech text",
-        "conversation_id": "optional-id",
-        "voice_id": "optional-voice-id"
-      }
-      ```
-    - Response: Raw audio bytes (`Content-Type: audio/mpeg` or `audio/wav`) OR JSON `{ "audio_url": "https://..." }`.
-    - Handled by the backend proxying to Fish Audio S2.1 Pro using a server-side API key.
-
-15. **`GET /api/v1/speech/status`** (or `/speech/status`)
-    - Response:
-      ```json
-      {
-        "stt_available": true,
-        "tts_available": true,
-        "stt_provider": "Faster-Whisper (base.en local model)",
-        "tts_provider": "Fish Audio S2.1 Pro",
-        "status": "healthy"
-      }
-      ```
-
----
-
-## 6. Backend Integration Checklist & Missing Endpoints
-
-If you are developing the backend server, implement the following endpoints to enable full live mode functionality:
-
-| Endpoint | Method | Backend Responsibility | Frontend Fallback Behavior |
-| :--- | :--- | :--- | :--- |
-| `/api/v1/speech/transcribe` | `POST` | Receive audio file, run local Faster-Whisper (`base.en`), return JSON `{ text, language, duration }`. | In Live Mode, surfaces clear error with retry option. In Demo Mode, provides grounded local simulation. |
-| `/api/v1/speech/synthesize` | `POST` | Receive `{ text, conversation_id }`, call Fish Audio S2.1 Pro with server-side key, stream audio bytes or return URL. | In Live Mode, shows retry button without breaking text response. In Demo Mode, plays local synthesized tone. |
-| `/api/v1/speech/status` | `GET` | Return health of local Faster-Whisper worker and Fish Audio API quota. | Returns offline status indicator with manual refresh button. |
+The source of truth is `backend/data/knowledge/northstar_master_knowledge_base.md` (fictional demo data, version 1.0). The assistant answers only from retrieved excerpts, says so when the KB doesn't specify something, never claims to perform account actions, and escalates refunds/cancellations/compromise to `support@example.com`. Replace the file (and the frontend copy in `src/data/northstarKnowledge.ts`) with approved real information before production use, as the KB itself requires. Extra documents can be uploaded in the Admin tab.
