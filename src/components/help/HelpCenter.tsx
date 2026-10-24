@@ -55,7 +55,7 @@ export const HelpCenter: React.FC<HelpCenterProps> = ({
           Northstar Help Center
         </h1>
         <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-          Official documentation, knowledge articles, SLA guidelines, and verified FAQ policies.
+          Approved FAQs and policies from the Northstar knowledge base.
         </p>
 
         <div className="mt-6 relative">
@@ -193,17 +193,17 @@ export const HelpCenter: React.FC<HelpCenterProps> = ({
                 Knowledge Base Guidance
               </h3>
               <p className="leading-relaxed mb-4">
-                Selecting any article displays the authoritative company-approved response directly from Northstar's operational archive.
+                Selecting an article shows the approved answer from the knowledge base. Details the knowledge base does not specify are marked as such.
               </p>
               <div className="space-y-2">
-                <div className="font-medium text-slate-700">Quick Policies:</div>
+                <div className="font-medium text-slate-700">Quick policies:</div>
                 <div className="bg-white p-2.5 rounded border border-slate-200">
-                  <div className="font-semibold text-slate-900">14-Day Money-Back Guarantee</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">Applicable to all annual contracts upon initial purchase.</div>
+                  <div className="font-semibold text-slate-900">Refunds</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">{NORTHSTAR_POLICIES.refunds}</div>
                 </div>
                 <div className="bg-white p-2.5 rounded border border-slate-200">
-                  <div className="font-semibold text-slate-900">No Cancellation Lock-In</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">Cancel recurring renewals at any time in billing settings.</div>
+                  <div className="font-semibold text-slate-900">Cancellation</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">{NORTHSTAR_POLICIES.cancellation}</div>
                 </div>
               </div>
             </div>
@@ -226,18 +226,14 @@ export const HelpCenter: React.FC<HelpCenterProps> = ({
             <div className="space-y-2 text-xs mb-4">
               <div className="flex items-center gap-2 text-slate-700">
                 <Mail className="w-3.5 h-3.5 text-slate-500" />
-                <span>support@northstar.example.com</span>
-              </div>
-              <div className="flex items-center gap-2 text-slate-700">
-                <Phone className="w-3.5 h-3.5 text-slate-500" />
-                <span>Enterprise hotline: +1 (800) 555-0199</span>
+                <span>support@example.com (fictional demo address)</span>
               </div>
             </div>
             <button
               onClick={onOpenEscalation}
               className="w-full py-2 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded text-xs font-semibold transition-colors"
             >
-              Open Support Ticket
+              Contact Support by Email
             </button>
           </div>
         </div>
