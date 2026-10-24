@@ -60,11 +60,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       <footer className="bg-white border-t border-slate-200 mt-auto py-6 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-800">Northstar Technologies Inc.</span>
+            <span className="font-semibold text-slate-800">Northstar Workspace</span>
             <span aria-hidden="true">·</span>
             <span>Customer Support Portal</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-mono tabular-nums">SLA: 99.95%</span>
           </div>
 
           <div className="flex items-center gap-6">
