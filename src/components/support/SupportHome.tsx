@@ -121,7 +121,7 @@ export const SupportHome: React.FC<SupportHomeProps> = ({
                 Products & Pricing Comparison &rarr;
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                View Starter, Professional, and Enterprise tiers with full feature matrices.
+                View Starter, Professional, and Business plans and add-ons.
               </p>
             </button>
 
@@ -136,7 +136,7 @@ export const SupportHome: React.FC<SupportHomeProps> = ({
                 Help Center & FAQs &rarr;
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Browse official policies, refund rules, and SLA incident response commitments.
+                Browse approved FAQs and policies from the knowledge base.
               </p>
             </button>
           </div>
