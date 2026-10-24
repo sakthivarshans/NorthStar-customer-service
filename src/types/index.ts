@@ -74,6 +74,7 @@ export interface ProductItem {
 export type DocumentProcessingStatus = 'queued' | 'processing' | 'indexed' | 'failed' | 'deleted';
 
 export interface AdminDocument {
+  builtin?: boolean;
   id: string;
   fileName: string;
   fileType: 'pdf' | 'txt' | 'md' | 'docx';
@@ -116,11 +117,13 @@ export interface FAQItem {
 export interface ChatRequest {
   message: string;
   conversation_id?: string;
+  user_message_id?: string;
 }
 
 export interface ChatResponse {
   answer: string;
   conversation_id: string;
+  message_id?: string;
   sources: SourceCitation[];
   grounded: boolean;
   needs_human: boolean;
@@ -146,6 +149,8 @@ export interface TranscriptionResponse {
   text: string;
   language?: string;
   duration?: number;
+  model?: string;
+  inference_time_ms?: number;
 }
 
 export interface SpeechSynthesisRequest {
@@ -157,9 +162,13 @@ export interface SpeechSynthesisRequest {
 export interface SpeechServiceStatus {
   stt_available: boolean;
   tts_available: boolean;
-  stt_provider: string; // e.g. "Faster-Whisper Large-v3 (Colab GPU via Backend)"
-  tts_provider: string; // e.g. "Fish Audio S2.1 Pro"
+  stt_provider: string; // e.g. "Faster-Whisper (base.en, local cpu/int8)"
+  tts_provider: string; // e.g. "Fish Audio (s2.1-pro-free)"
   status: 'healthy' | 'degraded' | 'offline';
+  stt_state?: 'not_loaded' | 'loading' | 'ready' | 'failed';
+  stt_error?: string | null;
+  tts_configured?: boolean;
+  approved_voices?: { id: string; label: string }[];
 }
 
 export interface VoicePreferences {
