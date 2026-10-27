@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     stt_device: str = "cpu"
     stt_compute_type: str = "int8"
     stt_language: str = "en"
+    # Vocabulary hint: helps Whisper spell product words correctly. Empty string disables it.
+    stt_initial_prompt: str = (
+        "Northstar Workspace customer support. Plans: Starter, Professional, Business. "
+        "Add-ons: Automate, Advanced Insights. Billing, refund, cancellation, invoice, SSO."
+    )
     stt_beam_size: int = 1  # greedy decoding: much faster on CPU; raise to 5 for slightly better accuracy
     stt_vad_filter: bool = True
     stt_cpu_threads: int = 0
