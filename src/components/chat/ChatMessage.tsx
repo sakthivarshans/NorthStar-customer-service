@@ -229,11 +229,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               <SourceList sources={message.sources} onSelectSource={onSelectSource} />
             )}
 
-            {/* Audio Speech Playback (Fish Audio S2.1 Pro TTS) */}
+            {/* Audio Speech Playback (Fish Audio S2.1 Pro Free TTS) */}
             {!isUser && !message.error && (
               <AudioPlayer
                 text={message.content}
                 conversationId={conversationId}
+                messageId={message.id}
                 autoPlay={voicePreferences?.autoPlayResponses}
                 voiceResponsesEnabled={voicePreferences?.voiceResponsesEnabled}
               />
