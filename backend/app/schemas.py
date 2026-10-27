@@ -96,6 +96,7 @@ class SpeechStatus(BaseModel):
     stt_model: str
     stt_state: Literal["not_loaded", "loading", "ready", "failed"]
     stt_error: str | None = None
+    stt_warmup_ms: int | None = None  # one-pass model speed measured at startup (large values = model too heavy)
     tts_model: str
     tts_configured: bool
     approved_voices: list[ApprovedVoice] = []
