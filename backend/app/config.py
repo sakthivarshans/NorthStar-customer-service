@@ -58,7 +58,8 @@ class Settings(BaseSettings):
 
     # TTS: "openrouter" (default; uses OPENROUTER_API_KEY) or "fish_audio" (native Fish API + FISH_API_KEY)
     tts_provider: str = "openrouter"
-    tts_model: str = "fish-audio/s2.1-pro-free"  # OpenRouter model id
+    tts_model: str = "fish-audio/s2.1-pro-free:free"  # OpenRouter slug of the free variant
+    tts_model_fallbacks: str = ""  # extra slugs to try on "No endpoints found", e.g. paid "fish-audio/s2.1-pro"
     tts_default_voice_id: str = ""
     fish_api_key: str = ""
     fish_api_base: str = "https://api.fish.audio"
