@@ -1,4 +1,5 @@
 """Central, environment-driven configuration (see .env.example)."""
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -6,6 +7,10 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
+
+# Windows without Developer Mode cannot create symlinks; Hugging Face then prints a long (harmless)
+# warning on every model download. Caching still works, so silence it unless the user set it explicitly.
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 
 class Settings(BaseSettings):
