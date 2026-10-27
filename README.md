@@ -9,21 +9,22 @@ Grounded customer-support assistant for **Northstar Workspace** (fictional demo 
 | LLM | **NVIDIA Nemotron 3.5 Super VL (free)** via OpenRouter, model `nvidia/nemotron-3.5-super-vl:free` |
 | RAG | Section-aware chunking + BM25 over `backend/data/knowledge/` (no embedding service) |
 | STT | **Faster-Whisper `base.en`**, running locally inside the backend (no API key) |
-| TTS | **Fish Audio** `s2.1-pro-free` via the hosted API (server-side key only) |
+| TTS | **Fish Audio S2.1 Pro Free** (`fish-audio/s2.1-pro-free`) through OpenRouter's `/audio/speech`, using the same `OPENROUTER_API_KEY` (native Fish API also supported) |
 
 Voice flow: record → `POST /speech/transcribe` (local Whisper) → transcript shown for **review/edit** → customer submits through the normal `POST /chat` → retrieval + Nemotron produce a cited answer → optional `POST /speech/synthesize` speaks *that same answer*. There is one chat pipeline; voice never bypasses it. See [docs/SPEECH_ARCHITECTURE.md](docs/SPEECH_ARCHITECTURE.md).
 
 ## Quick start
 
-Requirements: Python 3.10+, Node 20+, an [OpenRouter key](https://openrouter.ai/settings/keys), optionally a [Fish Audio key](https://fish.audio/app/api-keys).
+Requirements: Python 3.10+, Node 20+, one [OpenRouter key](https://openrouter.ai/settings/keys) (it powers both the chat model and the voice). A separate Fish Audio key is only needed if you set `TTS_PROVIDER=fish_audio`.
 
 ```bash
 # 1) Backend
 cd backend
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env                                   # then set OPENROUTER_API_KEY (and FISH_API_KEY for voice replies)
-python scripts/download_model.py                       # optional: pre-download Whisper base.en (see "Model cache")
+cp .env.example .env                                   # then set OPENROUTER_API_KEY
+python scripts/download_model.py                       # pre-download Whisper base.en (first run takes a while)
+python scripts/check_providers.py                      # real check of LLM + TTS + local STT with exact error messages
 uvicorn app.main:app --port 8000
 
 # 2) Frontend (new terminal, repo root)
@@ -72,8 +73,9 @@ All settings are in `backend/.env.example`. Key ones:
 
 ```
 STT_PROVIDER=faster_whisper_local   STT_MODEL=base.en   STT_DEVICE=cpu   STT_COMPUTE_TYPE=int8   STT_LANGUAGE=en
-TTS_PROVIDER=fish_audio   FISH_API_KEY=   FISH_TTS_MODEL=s2.1-pro-free   FISH_TTS_FORMAT=mp3   FISH_TTS_TIMEOUT_SECONDS=60
 OPENROUTER_API_KEY=       LLM_MODEL=nvidia/nemotron-3.5-super-vl:free
+TTS_PROVIDER=openrouter   TTS_MODEL=fish-audio/s2.1-pro-free        # same key as above
+STT_BEAM_SIZE=1           # fast on CPU; 5 = a bit more accurate
 ```
 
 GPU later: `STT_DEVICE=cuda STT_COMPUTE_TYPE=float16`. Multilingual later: `STT_MODEL=base` (or `small`) and `STT_LANGUAGE=` (empty = auto-detect). `base.en` is **English-only**; it is not suitable for other languages. No API change is needed to switch.
@@ -111,11 +113,15 @@ npm run lint && npm test && npm run build                            # frontend 
 | `stt_dependency_missing` | `pip install -r requirements.txt` in the active venv. |
 | Slow transcription | CPU `int8` is the default. Lower `STT_BEAM_SIZE` to 1–3, use `tiny.en`, or move to a GPU (`cuda`/`float16`). Expect the first request after startup to be slowest. |
 | `stt_busy` (429) | More than `STT_MAX_QUEUE` requests waiting; retry after the `Retry-After` seconds. |
-| `no_speech_detected` | Silence or VAD filtered everything; speak closer to the mic or set `STT_VAD_FILTER=false`. |
+| `no_speech_detected` | Silence. The server already retries without the voice-activity filter; check the browser's microphone input level. |
 | `llm_rate_limited` (429) | Free OpenRouter models have daily/per-minute caps; retry later or add credits. |
 | `llm_empty_answer` | A reasoning model used its token budget thinking; raise `LLM_MAX_TOKENS` or set `LLM_REASONING_EFFORT=low`. |
-| `tts_not_configured` | Set `FISH_API_KEY`. |
-| `tts_auth_failed` / `tts_quota_exceeded` / `tts_rate_limited` | Check the key, account credit, or slow down; text answers are unaffected. |
+| `tts_not_configured` | Set `OPENROUTER_API_KEY` (or `FISH_API_KEY` if `TTS_PROVIDER=fish_audio`). |
+| `tts_auth_failed` ("rejected the API key") | The key doesn't match the route. With the default `TTS_PROVIDER=openrouter` use your **OpenRouter** key in `OPENROUTER_API_KEY`. An OpenRouter key placed in `FISH_API_KEY` is rejected by Fish's own API. The message includes the provider's reason. |
+| `tts_forbidden` / `tts_quota_exceeded` / `tts_model_not_found` | Spend limit or disabled key / no credit / model unavailable. Free promo models can end; check `TTS_MODEL` on openrouter.ai/models. |
+| `tts_rate_limited` | Slow down; text answers are unaffected. |
+| `stt_inference_failed` (500) | A real model/runtime error, with its type shown and logged. Run `python scripts/check_providers.py stt`. |
+| Whole app slow on first voice use | Model load/download happens once (first run can take over a minute). After that, `STT_BEAM_SIZE=1` + `base.en` transcribes a short question in a few seconds on a modern CPU. |
 | Browser can't reach API | Add your frontend origin to `CORS_ORIGINS`; check `VITE_API_BASE_URL`. |
 | Mic blocked | Browsers allow microphone access only on `localhost` or HTTPS. |
 
