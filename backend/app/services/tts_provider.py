@@ -101,7 +101,8 @@ class _BaseTTS:
         if sc != 200:
             log.warning("TTS provider returned %s %s", sc, detail)
         if sc == 401:
-            raise AppError(502, "tts_auth_failed", f"The speech provider rejected the API key. Check {self.key_env} in backend/.env.{why}")
+            hint = " (that looks like an OpenRouter key; set TTS_PROVIDER=openrouter)" if self.api_key.startswith("sk-or-") else ""
+            raise AppError(502, "tts_auth_failed", f"The speech provider rejected the API key. Check {self.key_env} in backend/.env{hint}.{why}")
         if sc == 402:
             raise AppError(503, "tts_quota_exceeded", f"The speech provider account has no remaining credit.{why}")
         if sc == 403:
@@ -170,4 +171,21 @@ class FishAudioTTS(_BaseTTS):
 
 
 def make_tts(settings: Settings, client: httpx.AsyncClient | None = None):
-    return (FishAudioTTS if settings.tts_provider == "fish_audio" else OpenRouterTTS)(settings, client)
+    """Pick the TTS route.
+
+    A very common misconfiguration: an older .env still says TTS_PROVIDER=fish_audio and holds an
+    OpenRouter key (sk-or-...) in FISH_API_KEY, or has no Fish key at all while an OpenRouter key exists.
+    Fish's own API rejects OpenRouter keys ("Invalid Token"), so in those cases use the OpenRouter route.
+    """
+    if settings.tts_provider == "fish_audio":
+        fish_key = settings.fish_api_key
+        looks_like_openrouter = fish_key.startswith("sk-or-")
+        if looks_like_openrouter or (not fish_key and settings.openrouter_api_key):
+            log.warning(
+                "TTS_PROVIDER=fish_audio but FISH_API_KEY is %s; using the OpenRouter TTS route instead. "
+                "Set TTS_PROVIDER=openrouter in backend/.env to silence this.",
+                "an OpenRouter key" if looks_like_openrouter else "empty",
+            )
+            return OpenRouterTTS(settings, client)
+        return FishAudioTTS(settings, client)
+    return OpenRouterTTS(settings, client)
