@@ -43,7 +43,7 @@ class Settings(BaseSettings):
 
     # STT: local Faster-Whisper
     stt_provider: str = "faster_whisper_local"
-    stt_model: str = "base.en"
+    stt_model: str = "small.en"  # CPU-friendly; see .env.example for the speed/accuracy table
     stt_device: str = "cpu"
     stt_compute_type: str = "int8"
     stt_language: str = "en"
@@ -54,7 +54,10 @@ class Settings(BaseSettings):
     )
     stt_beam_size: int = 1  # greedy decoding: much faster on CPU; raise to 5 for slightly better accuracy
     stt_vad_filter: bool = True
-    stt_cpu_threads: int = 0
+    stt_cpu_threads: int = 0  # 0 = auto (physical cores, at least 4)
+    stt_temperature_fallback: bool = False  # True = Whisper's slower multi-temperature retry (more accurate on hard audio)
+    stt_warmup: bool = True  # one throw-away inference at startup so the first request is not slow
+    stt_silence_rms: float = 0.002  # recordings quieter than this are treated as silence without running the model
     stt_download_root: str = ""
     stt_local_files_only: bool = False
     stt_preload: bool = True
@@ -63,7 +66,7 @@ class Settings(BaseSettings):
     stt_min_duration_seconds: float = 0.3
     stt_max_concurrency: int = 1
     stt_max_queue: int = 4
-    stt_timeout_seconds: float = 90.0
+    stt_timeout_seconds: float = 60.0
     stt_load_retry_cooldown_seconds: float = 30.0
 
     # TTS: "openrouter" (default; uses OPENROUTER_API_KEY) or "fish_audio" (native Fish API + FISH_API_KEY)
