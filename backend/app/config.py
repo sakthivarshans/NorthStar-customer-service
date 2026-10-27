@@ -2,6 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -41,7 +42,7 @@ class Settings(BaseSettings):
     stt_device: str = "cpu"
     stt_compute_type: str = "int8"
     stt_language: str = "en"
-    stt_beam_size: int = 5
+    stt_beam_size: int = 1  # greedy decoding: much faster on CPU; raise to 5 for slightly better accuracy
     stt_vad_filter: bool = True
     stt_cpu_threads: int = 0
     stt_download_root: str = ""
@@ -55,8 +56,10 @@ class Settings(BaseSettings):
     stt_timeout_seconds: float = 90.0
     stt_load_retry_cooldown_seconds: float = 30.0
 
-    # TTS: Fish Audio
-    tts_provider: str = "fish_audio"
+    # TTS: "openrouter" (default; uses OPENROUTER_API_KEY) or "fish_audio" (native Fish API + FISH_API_KEY)
+    tts_provider: str = "openrouter"
+    tts_model: str = "fish-audio/s2.1-pro-free"  # OpenRouter model id
+    tts_default_voice_id: str = ""
     fish_api_key: str = ""
     fish_api_base: str = "https://api.fish.audio"
     fish_tts_model: str = "s2.1-pro-free"
@@ -65,6 +68,16 @@ class Settings(BaseSettings):
     fish_allowed_voice_ids: str = ""
     tts_max_chars: int = 4000
     tts_require_grounded_text: bool = True
+
+    @field_validator("openrouter_api_key", "fish_api_key", "api_access_key", "admin_api_key", mode="before")
+    @classmethod
+    def _clean_secret(cls, v):
+        # tolerate stray spaces/newlines/quotes copied along with a key
+        return v.strip().strip("\"'").strip() if isinstance(v, str) else v
+
+    @property
+    def tts_model_name(self) -> str:
+        return self.fish_tts_model if self.tts_provider == "fish_audio" else self.tts_model
 
     @property
     def cors_origin_list(self) -> list[str]:
