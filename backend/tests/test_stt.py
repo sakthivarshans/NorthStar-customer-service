@@ -21,7 +21,7 @@ def test_success_schema_and_singleton_model(make_client):
     assert r1.status_code == 200
     body = r1.json()
     assert set(body) == {"text", "language", "duration", "model", "inference_time_ms", "segments"}
-    assert body["text"] == "How much is the Professional plan" and body["model"] == "base.en"
+    assert body["text"] == "How much is the Professional plan" and body["model"] == "small.en"
     assert isinstance(body["inference_time_ms"], int) and r2.status_code == 200
     assert svc.stt.ready and svc.stt._model is svc.stt._model  # loaded once, reused
     assert svc.stt._model.last_kwargs["language"] == "en" and svc.stt._model.last_kwargs["vad_filter"] is True
@@ -96,7 +96,7 @@ def test_status_reports_model_readiness(make_client):
     assert c.get("/api/v1/speech/status").json()["stt_state"] == "not_loaded"
     svc.stt.load()
     s = c.get("/api/v1/speech/status").json()
-    assert s["stt_state"] == "ready" and s["stt_available"] is True and s["stt_model"] == "base.en"
+    assert s["stt_state"] == "ready" and s["stt_available"] is True and s["stt_model"] == "small.en"
     assert c.get("/api/v1/health").json()["stt_ready"] is True
 
 
