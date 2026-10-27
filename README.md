@@ -74,7 +74,7 @@ All settings are in `backend/.env.example`. Key ones:
 ```
 STT_PROVIDER=faster_whisper_local   STT_MODEL=base.en   STT_DEVICE=cpu   STT_COMPUTE_TYPE=int8   STT_LANGUAGE=en
 OPENROUTER_API_KEY=       LLM_MODEL=nvidia/nemotron-3.5-super-vl:free
-TTS_PROVIDER=openrouter   TTS_MODEL=fish-audio/s2.1-pro-free        # same key as above
+TTS_PROVIDER=openrouter   TTS_MODEL=fish-audio/s2.1-pro-free:free   # same key as above; the app also tries the name without :free
 STT_BEAM_SIZE=1           # fast on CPU; 5 = a bit more accurate
 ```
 
@@ -118,7 +118,8 @@ npm run lint && npm test && npm run build                            # frontend 
 | `llm_empty_answer` | A reasoning model used its token budget thinking; raise `LLM_MAX_TOKENS` or set `LLM_REASONING_EFFORT=low`. |
 | `tts_not_configured` | Set `OPENROUTER_API_KEY` (or `FISH_API_KEY` if `TTS_PROVIDER=fish_audio`). |
 | `tts_auth_failed` ("rejected the API key") | The key doesn't match the route. With the default `TTS_PROVIDER=openrouter` use your **OpenRouter** key in `OPENROUTER_API_KEY`. An OpenRouter key placed in `FISH_API_KEY` is rejected by Fish's own API. The message includes the provider's reason. |
-| `tts_forbidden` / `tts_quota_exceeded` / `tts_model_not_found` | Spend limit or disabled key / no credit / model unavailable. Free promo models can end; check `TTS_MODEL` on openrouter.ai/models. |
+| `tts_model_not_found` ("No endpoints found for …") | OpenRouter lists the free voice under the slug `fish-audio/s2.1-pro-free:free`; the app tries both spellings automatically. If both fail the free promo is unavailable: set `TTS_MODEL=fish-audio/s2.1-pro` (paid, about $15 per million bytes of text, needs credits) or check openrouter.ai/settings/privacy. |
+| `tts_forbidden` / `tts_quota_exceeded` | Spend limit or disabled key / no credit on your OpenRouter account. |
 | `tts_rate_limited` | Slow down; text answers are unaffected. |
 | `stt_inference_failed` (500) | A real model/runtime error, with its type shown and logged. Run `python scripts/check_providers.py stt`. |
 | Whole app slow on first voice use | Model load/download happens once (first run can take over a minute). After that, `STT_BEAM_SIZE=1` + `base.en` transcribes a short question in a few seconds on a modern CPU. |
