@@ -2,6 +2,7 @@ import io
 import math
 import struct
 import wave
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -13,11 +14,11 @@ from app.deps import Services
 from app.main import create_app
 from app.services.documents import KnowledgeBase
 from app.services.store import ConversationStore
-from app.services.stt_provider import FasterWhisperSTT
+from app.services.stt_provider import FasterWhisperSTT, DisabledSTT
 from app.services.tts_provider import FishAudioTTS
 from app.errors import AppError
 
-KB_SRC = "data/knowledge/northstar_master_knowledge_base.md"
+KB_SRC = Path(__file__).resolve().parents[1] / "data" / "knowledge" / "northstar_master_knowledge_base.md"
 
 
 def make_wav(seconds=1.0, rate=16000) -> bytes:

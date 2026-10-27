@@ -94,7 +94,7 @@ class SpeechStatus(BaseModel):
     tts_provider: str
     status: Literal["healthy", "degraded", "offline"]
     stt_model: str
-    stt_state: Literal["not_loaded", "loading", "ready", "failed"]
+    stt_state: Literal["not_loaded", "loading", "ready", "failed", "disabled"]
     stt_error: str | None = None
     stt_warmup_ms: int | None = None  # one-pass model speed measured at startup (large values = model too heavy)
     tts_model: str

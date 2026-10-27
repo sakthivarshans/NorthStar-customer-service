@@ -6,6 +6,58 @@ from dataclasses import dataclass
 
 STOP = set("a an the and or but of to in on for with at by from is are was were be been it its this that these those i you we my your our do does did can could will would should how what when where which who whom why if as not no yes any about into than then so there their them they me us have has had get got just also".split())
 
+# Lightweight synonym / alias map: maps a conversational word to one or more
+# terms that actually appear in the knowledge-base text.  Only domain-relevant
+# entries are needed — this keeps retrieval working when users phrase questions
+# naturally without adding an embedding model.
+_SYNONYMS: dict[str, list[str]] = {
+    "pro": ["professional"],
+    "biz": ["business"],
+    "pricing": ["price", "cost"],
+    "cost": ["price", "pricing"],
+    "price": ["pricing", "cost"],
+    "fee": ["price", "cost"],
+    "subscription": ["plan", "billing"],
+    "tier": ["plan"],
+    "money": ["refund", "charge", "payment"],
+    "reimburse": ["refund"],
+    "reimbursement": ["refund"],
+    "boss": ["ceo", "executive"],
+    "leader": ["ceo", "executive"],
+    "head": ["lead", "manager"],
+    "locked": ["sign", "access", "recovery"],
+    "login": ["sign", "access", "account"],
+    "signin": ["sign", "access", "account"],
+    "signup": ["account", "creation"],
+    "register": ["account", "creation"],
+    "help": ["support", "contact"],
+    "feature": ["capability", "include"],
+    "integrate": ["integration"],
+    "automation": ["automate"],
+    "report": ["reporting", "insight"],
+    "insight": ["reporting", "report"],
+    "employ": ["employee", "directory", "staff"],
+    "staff": ["employee", "directory"],
+    "team": ["employee", "workspace"],
+    "secure": ["security", "privacy"],
+    "safe": ["security", "privacy"],
+    "data": ["privacy", "retention", "storage"],
+    "compliant": ["compliance", "certification"],
+    "gdpr": ["compliance", "privacy"],
+    "sso": ["authentication", "sign"],
+    "api": ["integration"],
+    "export": ["import", "format"],
+    "member": ["user", "seat", "workspace"],
+    "seat": ["user", "member"],
+    "upgrade": ["plan", "change"],
+    "downgrade": ["plan", "change"],
+    "charge": ["billing", "payment", "invoice"],
+    "invoice": ["billing", "payment", "charge"],
+    "receipt": ["invoice", "billing"],
+    "cancel": ["cancellation"],
+    "cancellation": ["cancel"],
+}
+
 _H_NUM = re.compile(r"^(\d{1,2})\.\s+([A-Z].{2,90})$")
 _H_MD = re.compile(r"^#{1,6}\s+(.+)$")
 
@@ -31,6 +83,16 @@ def tokenize(text: str) -> list[str]:
             w = w[:-1]
         out.append(w)
     return out
+
+
+def expand_query_tokens(tokens: list[str]) -> list[str]:
+    """Expand query tokens with synonyms for better BM25 recall."""
+    expanded = list(tokens)
+    for t in tokens:
+        for syn in _SYNONYMS.get(t, ()):
+            if syn not in expanded:
+                expanded.append(syn)
+    return expanded
 
 
 def _is_subheading(line: str) -> bool:
@@ -118,20 +180,29 @@ class BM25Index:
         self._idf = {w: math.log(1 + (n - d + 0.5) / (d + 0.5)) for w, d in df.items()}
 
     def search(self, query: str, top_k: int = 4) -> list[Hit]:
-        q = list(dict.fromkeys(tokenize(query)))
-        if not q or not self.chunks:
+        raw = list(dict.fromkeys(tokenize(query)))
+        if not raw or not self.chunks:
             return []
+        q = list(dict.fromkeys(expand_query_tokens(raw)))
+        n_original = len(raw)
         hits = []
         for i, tf in enumerate(self._tf):
             s = 0.0
-            matched = 0
-            for w in q:
+            matched_original = 0
+            matched_expanded = 0
+            for j, w in enumerate(q):
                 f = tf.get(w, 0)
                 if f:
-                    matched += 1
+                    if j < n_original:
+                        matched_original += 1
+                    else:
+                        matched_expanded += 1
                     s += self._idf.get(w, 0) * f * (self.k1 + 1) / (f + self.k1 * (1 - self.b + self.b * self._len[i] / self._avg))
             if s > 0:
-                cov = matched / len(q)
+                # Coverage is based on original query terms (with a small
+                # bonus for synonym hits to keep ranking sensible).
+                cov = (matched_original + 0.3 * matched_expanded) / n_original
+                cov = min(cov, 1.0)
                 hits.append(Hit(self.chunks[i], s, cov, round(min(1.0, 0.6 * cov + 0.4 * s / (s + 3)), 2)))
         hits.sort(key=lambda h: (h.score, h.coverage), reverse=True)
         return hits[:top_k]
@@ -143,6 +214,6 @@ def evidence_status(hits: list[Hit]) -> str:
     top = hits[0]
     if top.coverage >= 0.5 and top.score >= 3:
         return "grounded"
-    if top.coverage >= 0.34 and top.score >= 1.5:
+    if top.coverage >= 0.25 and top.score >= 1.0:
         return "partial"
     return "uncertain"

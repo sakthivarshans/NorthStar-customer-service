@@ -154,3 +154,7 @@ class KnowledgeBase:
         hits = self.index.search(query, top_k)
         self.last_latency_ms = int((time.perf_counter() - t0) * 1000)
         return hits
+
+    @property
+    def documents(self):
+        return self.docs

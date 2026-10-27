@@ -14,7 +14,7 @@ from app.routers import admin, chat, speech
 from app.services.documents import KnowledgeBase
 from app.services.llm_provider import OpenRouterLLM
 from app.services.store import ConversationStore
-from app.services.stt_provider import FasterWhisperSTT
+from app.services.stt_provider import FasterWhisperSTT, DisabledSTT
 from app.services.tts_provider import make_tts
 
 VERSION = "1.0.0"
@@ -22,12 +22,13 @@ VERSION = "1.0.0"
 
 def build_services(settings: Settings, **overrides) -> Services:
     client = httpx.AsyncClient()
+    stt_default = FasterWhisperSTT(settings) if settings.stt_provider == "faster_whisper_local" else DisabledSTT(settings)
     return Services(
         settings=settings,
         kb=overrides.get("kb") or KnowledgeBase(settings.data_dir, settings.rag_chunk_chars),
         store=overrides.get("store") or ConversationStore(settings.data_dir / "conversations.db"),
         llm=overrides.get("llm") or OpenRouterLLM(settings, client),
-        stt=overrides.get("stt") or FasterWhisperSTT(settings),
+        stt=overrides.get("stt") or stt_default,
         tts=overrides.get("tts") or make_tts(settings, client),
     )
 
@@ -41,13 +42,12 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     async def lifespan(app: FastAPI):
         if not hasattr(app.state, "services"):
             app.state.services = build_services(settings)
-        if settings.stt_preload:
+        if settings.stt_preload and getattr(app.state.services.stt, "preload", None):
             app.state.preload = asyncio.create_task(app.state.services.stt.preload())  # never blocks startup
         yield
 
     app = FastAPI(title="Northstar Support API", version=VERSION, lifespan=lifespan)
-    if services is not None:
-        app.state.services = services
+    app.state.services = services or build_services(settings)
     stt_limit = settings.stt_max_upload_bytes + 128 * 1024
     app.add_middleware(BodySizeLimitMiddleware, limit_for=lambda p: stt_limit if p.endswith("/speech/transcribe") else (20 * 1024 * 1024 if "/admin/documents" in p else 256 * 1024))
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_methods=["*"],
@@ -61,10 +61,13 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
         return {"status": "healthy" if llm_ok else "degraded", "version": VERSION, "llm_model": settings.llm_model,
                 "llm_configured": llm_ok, "stt_state": s.stt.state, "stt_model": settings.stt_model,
                 "stt_ready": s.stt.ready, "tts_configured": s.tts.configured, "tts_model": s.tts.model, "tts_provider": settings.tts_provider,
-                "documents_indexed": len([d for d in s.kb.docs.values() if d["status"] == "indexed"])}
+                "documents_indexed": len([d for d in s.kb.docs.values() if d["status"] == "indexed"]),
+                "documents": len(s.kb.docs), "chunks": len(s.kb.chunks),
+                "stt_warmup_ms": getattr(s.stt, "warmup_ms", None)}
 
-    for r in (chat.router, speech.router, admin.router):
-        app.include_router(r, prefix="/api/v1")
+    app.include_router(chat.router, prefix="/api/v1")
+    app.include_router(speech.router, prefix="/api/v1")
+    app.include_router(admin.router, prefix="/api/v1")
     return app
 
 

@@ -83,11 +83,30 @@ class Settings(BaseSettings):
     tts_max_chars: int = 4000
     tts_require_grounded_text: bool = True
 
-    @field_validator("openrouter_api_key", "fish_api_key", "api_access_key", "admin_api_key", mode="before")
+    @field_validator(
+        "openrouter_api_key",
+        "fish_api_key",
+        "api_access_key",
+        "admin_api_key",
+        "fish_allowed_voice_ids",
+        "llm_reasoning_effort",
+        "stt_download_root",
+        "tts_model",
+        "stt_device",
+        "stt_compute_type",
+        "stt_model",
+        mode="before",
+    )
     @classmethod
-    def _clean_secret(cls, v):
-        # tolerate stray spaces/newlines/quotes copied along with a key
-        return v.strip().strip("\"'").strip() if isinstance(v, str) else v
+    def _clean_str_field(cls, v):
+        if isinstance(v, str):
+            v = v.strip().strip("\"'").strip()
+            if v.startswith("#"):
+                return ""
+            if " #" in v:
+                v = v.split(" #", 1)[0].strip()
+            return v
+        return v
 
     @property
     def tts_model_name(self) -> str:
@@ -102,8 +121,9 @@ class Settings(BaseSettings):
         out = []
         for item in self.fish_allowed_voice_ids.split(","):
             vid, _, label = item.strip().partition(":")
-            if vid.strip():
-                out.append({"id": vid.strip(), "label": (label or vid).strip()})
+            vid = vid.strip()
+            if vid and not vid.startswith("#"):
+                out.append({"id": vid, "label": (label or vid).strip()})
         return out
 
     @property

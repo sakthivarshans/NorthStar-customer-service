@@ -232,3 +232,31 @@ class FasterWhisperSTT:
             if cancel is not None:
                 cancel.set()
             raise AppError(504, "stt_timeout", f"Transcription is taking too long on this computer. {SLOW_HINT}") from exc
+
+
+class DisabledSTT:
+    """No-op STT stub: the app starts without Whisper installed and never downloads a model."""
+
+    def __init__(self, settings: Settings | None = None, **_kw):
+        pass
+
+    @property
+    def state(self) -> str:
+        return "disabled"
+
+    @property
+    def error_message(self) -> str | None:
+        return "Speech-to-text is disabled."
+
+    @property
+    def ready(self) -> bool:
+        return False
+
+    def load(self) -> None:
+        raise AppError(503, "stt_disabled", "Speech-to-text is disabled in this deployment.")
+
+    async def preload(self) -> None:
+        pass  # no-op: never downloads or initialises anything
+
+    async def transcribe(self, audio, cancel: threading.Event | None = None) -> None:
+        raise AppError(503, "stt_disabled", "Speech-to-text is disabled in this deployment.")
