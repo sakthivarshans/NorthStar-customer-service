@@ -109,7 +109,7 @@ def or_tts(handler, **kw):
 
 def test_default_tts_provider_is_openrouter_free_fish_model():
     s = Settings()
-    assert s.tts_provider == "openrouter" and s.tts_model == "fish-audio/s2.1-pro-free"
+    assert s.tts_provider == "openrouter" and s.tts_model == "fish-audio/s2.1-pro-free:free"
     assert isinstance(make_tts(s), OpenRouterTTS)
     assert isinstance(make_tts(Settings(tts_provider="fish_audio", fish_api_key="k", openrouter_api_key="")), FishAudioTTS)
 
@@ -124,8 +124,8 @@ async def test_openrouter_tts_request_shape():
 
     out = await or_tts(h).synthesize("Hello there")
     assert seen["url"] == "https://openrouter.ai/api/v1/audio/speech" and seen["auth"] == "Bearer or-key"
-    assert seen["body"] == {"model": "fish-audio/s2.1-pro-free", "input": "Hello there", "response_format": "mp3"}
-    assert out.content_type == "audio/mpeg" and out.model == "fish-audio/s2.1-pro-free"
+    assert seen["body"] == {"model": "fish-audio/s2.1-pro-free:free", "input": "Hello there", "response_format": "mp3"}
+    assert out.content_type == "audio/mpeg" and out.model == "fish-audio/s2.1-pro-free:free"
 
 
 async def test_openrouter_tts_voice_must_be_approved_then_is_sent():
@@ -185,7 +185,7 @@ def test_synthesize_endpoint_via_openrouter_and_status_labels(make_client):
     r = c.post("/api/v1/speech/synthesize", json={"text": b["answer"], "conversation_id": "z"})
     assert r.status_code == 200 and r.headers["content-type"] == "audio/mpeg"
     st = c.get("/api/v1/speech/status").json()
-    assert st["tts_model"] == "fish-audio/s2.1-pro-free" and "OpenRouter" in st["tts_provider"] and st["tts_available"]
+    assert st["tts_model"] == "fish-audio/s2.1-pro-free:free" and "OpenRouter" in st["tts_provider"] and st["tts_available"]
     assert c.get("/api/v1/health").json()["tts_provider"] == "openrouter"
 
 
@@ -210,3 +210,58 @@ async def test_auth_hint_when_an_openrouter_key_hits_fish_directly():
     with pytest.raises(AppError) as e:
         await t.synthesize("hi")
     assert "TTS_PROVIDER=openrouter" in e.value.message and "Invalid Token" in e.value.message
+
+
+# ---------- "No endpoints found for fish-audio/s2.1-pro-free" (free variant slug) ----------
+def _slug_handler(working, calls):
+    import json
+
+    def h(req):
+        m = json.loads(req.read())["model"]
+        calls.append(m)
+        if m == working:
+            return httpx.Response(200, headers={"content-type": "audio/mpeg"}, content=MP3)
+        return httpx.Response(404, json={"error": {"code": 404, "message": f"No endpoints found for {m}."}})
+    return h
+
+
+@pytest.mark.parametrize("configured,working", [
+    ("fish-audio/s2.1-pro-free", "fish-audio/s2.1-pro-free:free"),   # user's old .env value, real slug has :free
+    ("fish-audio/s2.1-pro-free:free", "fish-audio/s2.1-pro-free"),   # and the reverse
+])
+async def test_tts_tries_the_free_and_non_free_slug(configured, working):
+    calls = []
+    t = or_tts(_slug_handler(working, calls), tts_model=configured)
+    out = await t.synthesize("hello")
+    assert out.model == working and calls[0] == configured and working in calls
+    await t.synthesize("again")
+    assert calls[-1] == working and len(calls) == 3  # remembered; no more 404 round-trips
+
+
+async def test_tts_all_slugs_404_gives_actionable_message():
+    t = or_tts(_slug_handler("nothing-works", []), tts_model="fish-audio/s2.1-pro-free")
+    with pytest.raises(AppError) as e:
+        await t.synthesize("hello")
+    assert e.value.code == "tts_model_not_found"
+    m = e.value.message
+    assert "fish-audio/s2.1-pro-free:free" in m and "fish-audio/s2.1-pro-free" in m and "TTS_MODEL=fish-audio/s2.1-pro" in m
+
+
+async def test_tts_paid_fallback_is_opt_in_only():
+    calls = []
+    h = _slug_handler("fish-audio/s2.1-pro", calls)
+    with pytest.raises(AppError):
+        await or_tts(h).synthesize("hi")
+    assert "fish-audio/s2.1-pro" not in calls  # never silently spends credits
+    out = await or_tts(h, tts_model_fallbacks="fish-audio/s2.1-pro").synthesize("hi")
+    assert out.model == "fish-audio/s2.1-pro"
+
+
+async def test_non_404_errors_do_not_trigger_model_switching():
+    calls = []
+    def h(req):
+        calls.append(1)
+        return httpx.Response(402, json={"error": {"message": "Insufficient credits"}})
+    with pytest.raises(AppError) as e:
+        await or_tts(h).synthesize("hi")
+    assert e.value.code == "tts_quota_exceeded" and len(calls) == 1
