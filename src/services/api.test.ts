@@ -106,3 +106,20 @@ describe('auto-speak', () => {
     expect(consumeAutoSpeak(undefined)).toBe(false);
   });
 });
+
+
+describe('cancellation', () => {
+  it('aborting the signal cancels the request and reports code "aborted" (not a network error)', async () => {
+    apiService.setMode('live');
+    const ctrl = new AbortController();
+    vi.stubGlobal('fetch', (_u: string, init: RequestInit) => new Promise((_res, rej) => {
+      init.signal!.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    }));
+    const p = apiService.transcribeAudio(new Blob([new Uint8Array(500)], { type: 'audio/webm' }), ctrl.signal).catch((e) => e);
+    ctrl.abort();
+    const err = await p;
+    expect(err.code).toBe('aborted');
+    expect(err.isNetworkError).toBe(false);
+    vi.unstubAllGlobals();
+  });
+});
