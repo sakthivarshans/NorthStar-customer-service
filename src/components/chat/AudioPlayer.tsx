@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { apiService, ApiServiceError } from '../../services/api';
+import { consumeAutoSpeak } from '../../services/autoSpeak';
 import {
   Play,
   Pause,
@@ -14,6 +15,7 @@ import {
 interface AudioPlayerProps {
   text: string;
   conversationId?: string;
+  messageId?: string;
   autoPlay?: boolean;
   voiceResponsesEnabled?: boolean;
 }
@@ -21,6 +23,7 @@ interface AudioPlayerProps {
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   text,
   conversationId,
+  messageId,
   autoPlay = false,
   voiceResponsesEnabled = true
 }) => {
@@ -35,7 +38,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   useEffect(() => {
     // If autoPlay is enabled and voice responses are enabled, synthesize and play
-    if (autoPlay && voiceResponsesEnabled && !audioUrl && !isLoading && !errorMessage) {
+    if (autoPlay && voiceResponsesEnabled && !audioUrl && !isLoading && !errorMessage && consumeAutoSpeak(messageId)) {
       handlePlay();
     }
   }, [autoPlay, voiceResponsesEnabled]);
