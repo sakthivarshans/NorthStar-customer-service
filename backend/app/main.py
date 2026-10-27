@@ -15,7 +15,7 @@ from app.services.documents import KnowledgeBase
 from app.services.llm_provider import OpenRouterLLM
 from app.services.store import ConversationStore
 from app.services.stt_provider import FasterWhisperSTT
-from app.services.tts_provider import FishAudioTTS
+from app.services.tts_provider import make_tts
 
 VERSION = "1.0.0"
 
@@ -28,7 +28,7 @@ def build_services(settings: Settings, **overrides) -> Services:
         store=overrides.get("store") or ConversationStore(settings.data_dir / "conversations.db"),
         llm=overrides.get("llm") or OpenRouterLLM(settings, client),
         stt=overrides.get("stt") or FasterWhisperSTT(settings),
-        tts=overrides.get("tts") or FishAudioTTS(settings, client),
+        tts=overrides.get("tts") or make_tts(settings, client),
     )
 
 
@@ -60,7 +60,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
         llm_ok = s.llm.configured
         return {"status": "healthy" if llm_ok else "degraded", "version": VERSION, "llm_model": settings.llm_model,
                 "llm_configured": llm_ok, "stt_state": s.stt.state, "stt_model": settings.stt_model,
-                "stt_ready": s.stt.ready, "tts_configured": s.tts.configured, "tts_model": settings.fish_tts_model,
+                "stt_ready": s.stt.ready, "tts_configured": s.tts.configured, "tts_model": s.tts.model, "tts_provider": settings.tts_provider,
                 "documents_indexed": len([d for d in s.kb.docs.values() if d["status"] == "indexed"])}
 
     for r in (chat.router, speech.router, admin.router):
