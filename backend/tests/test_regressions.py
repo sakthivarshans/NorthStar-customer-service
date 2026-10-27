@@ -111,7 +111,7 @@ def test_default_tts_provider_is_openrouter_free_fish_model():
     s = Settings()
     assert s.tts_provider == "openrouter" and s.tts_model == "fish-audio/s2.1-pro-free"
     assert isinstance(make_tts(s), OpenRouterTTS)
-    assert isinstance(make_tts(Settings(tts_provider="fish_audio")), FishAudioTTS)
+    assert isinstance(make_tts(Settings(tts_provider="fish_audio", fish_api_key="k", openrouter_api_key="")), FishAudioTTS)
 
 
 async def test_openrouter_tts_request_shape():
@@ -187,3 +187,26 @@ def test_synthesize_endpoint_via_openrouter_and_status_labels(make_client):
     st = c.get("/api/v1/speech/status").json()
     assert st["tts_model"] == "fish-audio/s2.1-pro-free" and "OpenRouter" in st["tts_provider"] and st["tts_available"]
     assert c.get("/api/v1/health").json()["tts_provider"] == "openrouter"
+
+
+# ---------- misconfigured legacy .env (the "Invalid Token" report) ----------
+def test_legacy_fish_setting_with_openrouter_key_is_rerouted_to_openrouter():
+    s = Settings(tts_provider="fish_audio", fish_api_key="sk-or-v1-abc", openrouter_api_key="sk-or-v1-abc")
+    assert isinstance(make_tts(s), OpenRouterTTS)
+
+
+def test_legacy_fish_setting_with_no_fish_key_but_openrouter_key_is_rerouted():
+    assert isinstance(make_tts(Settings(tts_provider="fish_audio", fish_api_key="", openrouter_api_key="sk-or-v1-abc")), OpenRouterTTS)
+
+
+def test_real_fish_key_still_uses_native_fish_route():
+    s = Settings(tts_provider="fish_audio", fish_api_key="a1b2c3realfishkey", openrouter_api_key="sk-or-v1-abc")
+    assert isinstance(make_tts(s), FishAudioTTS)
+
+
+async def test_auth_hint_when_an_openrouter_key_hits_fish_directly():
+    s = Settings(fish_api_key="sk-or-v1-abc")
+    t = FishAudioTTS(s, httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(401, json={"message": "Invalid Token", "status": 401}))))
+    with pytest.raises(AppError) as e:
+        await t.synthesize("hi")
+    assert "TTS_PROVIDER=openrouter" in e.value.message and "Invalid Token" in e.value.message
