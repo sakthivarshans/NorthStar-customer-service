@@ -88,3 +88,21 @@ describe('speech API client', () => {
     expect(st.stt_available).toBe(false);
   });
 });
+
+import { consumeAutoSpeak, markAutoSpeak } from './autoSpeak';
+import { DEFAULT_VOICE_PREFERENCES } from './api';
+
+describe('auto-speak', () => {
+  it('is on by default for voice replies', () => {
+    expect(DEFAULT_VOICE_PREFERENCES.autoPlayResponses).toBe(true);
+    expect(DEFAULT_VOICE_PREFERENCES.voiceResponsesEnabled).toBe(true);
+  });
+
+  it('speaks only the freshly arrived message, and only once', () => {
+    markAutoSpeak('asst-new');
+    expect(consumeAutoSpeak('asst-old')).toBe(false); // history never auto-plays
+    expect(consumeAutoSpeak('asst-new')).toBe(true);
+    expect(consumeAutoSpeak('asst-new')).toBe(false); // not again on re-render
+    expect(consumeAutoSpeak(undefined)).toBe(false);
+  });
+});
