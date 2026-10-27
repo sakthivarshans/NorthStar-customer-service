@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import tempfile
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
@@ -24,6 +25,7 @@ def speech_status(s) -> SpeechStatus:
         tts_provider=s.tts.label,
         status="healthy" if (s.stt.ready and tts_ok) else ("offline" if not stt_ok and not tts_ok else "degraded"),
         stt_model=s.settings.stt_model, stt_state=s.stt.state, stt_error=s.stt.error_message,
+        stt_warmup_ms=getattr(s.stt, "warmup_ms", None),
         tts_model=s.tts.model, tts_configured=tts_ok, approved_voices=s.settings.approved_voices)
 
 
@@ -55,7 +57,18 @@ async def transcribe(request: Request, file: UploadFile = File(...)):
                 tmp.write(chunk)
         audio, duration = await asyncio.to_thread(
             load_audio, tmp_path, s.settings.stt_max_duration_seconds, s.settings.stt_min_duration_seconds)
-        result = await s.stt.transcribe(audio)
+        cancel = threading.Event()  # set if the browser gives up, so a queued/abandoned job never runs
+
+        async def watch_disconnect():
+            while not await request.is_disconnected():
+                await asyncio.sleep(0.5)
+            cancel.set()
+
+        watcher = asyncio.create_task(watch_disconnect())
+        try:
+            result = await s.stt.transcribe(audio, cancel)
+        finally:
+            watcher.cancel()
         if not result.text:
             raise AppError(422, "no_speech_detected", "No speech was detected in the recording.")
         log.info("transcribed %.1fs audio in %d ms (%d chars)", duration, result.inference_time_ms, len(result.text))
