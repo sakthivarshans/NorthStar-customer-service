@@ -34,21 +34,35 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const [transcribeSeconds, setTranscribeSeconds] = useState(0);
 
   const maxSeconds = voicePreferences.maxRecordingSeconds || 60;
 
   // Cleanup on unmount or close
   useEffect(() => {
     return () => {
+      abortRef.current?.abort(); // tell the server we no longer want this transcript
       cleanupMedia();
     };
   }, []);
+
+  // Elapsed time while the server transcribes, so a slow run is visible instead of looking frozen.
+  useEffect(() => {
+    if (state !== 'transcribing') {
+      setTranscribeSeconds(0);
+      return;
+    }
+    const id = window.setInterval(() => setTranscribeSeconds((s) => s + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [state]);
 
   useEffect(() => {
     if (isOpen && state === 'idle') {
       startRecordingFlow();
     }
     if (!isOpen) {
+      abortRef.current?.abort();
       cleanupMedia();
       setState('idle');
       setErrorMessage(null);
@@ -138,6 +152,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         }
       }, 1000);
     } catch (err: unknown) {
+      if (err instanceof ApiServiceError && err.code === 'aborted') return; // user cancelled / dialog closed
       setState('failed');
       const msg =
         err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
@@ -168,6 +183,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   };
 
   const handleCancel = () => {
+    abortRef.current?.abort();
     setState('cancelled');
     cleanupMedia();
     onClose();
@@ -192,8 +208,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       setState('transcribing');
     }, 400);
 
+    abortRef.current?.abort(); // never let two transcriptions of ours run at once (e.g. Retry spam)
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const response: TranscriptionResponse = await apiService.transcribeAudio(blob);
+      const response: TranscriptionResponse = await apiService.transcribeAudio(blob, controller.signal);
       if (!response.text || !response.text.trim()) {
         setState('failed');
         setErrorMessage(
@@ -330,8 +350,15 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   {state === 'uploading' ? 'Sending Audio to Backend' : 'Transcribing Speech'}
                 </h4>
                 <p className="text-xs text-slate-500 mt-1">
-                  Local Faster-Whisper (base.en) processing audio...
+                  {state === 'transcribing'
+                    ? `Local Faster-Whisper is processing your audio… ${transcribeSeconds}s`
+                    : 'Local Faster-Whisper is processing your audio…'}
                 </p>
+                {state === 'transcribing' && transcribeSeconds >= 20 && (
+                  <p className="text-[11px] text-amber-600 mt-2 max-w-xs mx-auto">
+                    This is slow for this computer. A smaller model (STT_MODEL=small.en) is much faster on a CPU.
+                  </p>
+                )}
               </div>
             </div>
           )}
