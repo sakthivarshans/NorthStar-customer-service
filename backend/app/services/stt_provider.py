@@ -124,6 +124,7 @@ class FasterWhisperSTT:
                 vad_filter=vad,
                 vad_parameters={"min_silence_duration_ms": 500},
                 condition_on_previous_text=False,
+                initial_prompt=self.s.stt_initial_prompt.strip() or None,
             )
             segments: list[Segment] = []
             for seg in segments_iter:  # generator: inference happens while consuming
@@ -155,6 +156,10 @@ class FasterWhisperSTT:
             # VAD can discard quiet/short speech entirely; retry once without it before giving up.
             segments, info = self._run(audio, False, deadline)
         text = " ".join(g.text for g in segments if g.text).strip()
+        prompt = self.s.stt_initial_prompt.strip()
+        if prompt and text and text.rstrip(".").lower() in prompt.lower():
+            text = ""  # Whisper echoed the vocabulary hint on silence/noise: treat as no speech
+            segments = []
         return TranscriptionResult(
             text=text,
             language=getattr(info, "language", None) or self._language() or "en",
