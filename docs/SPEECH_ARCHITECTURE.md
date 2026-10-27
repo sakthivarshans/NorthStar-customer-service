@@ -7,7 +7,7 @@ Browser ──record──▶ POST /speech/transcribe ──▶ validate ─▶ 
    │
    ├─ user approves ─▶ POST /chat ─▶ BM25 retrieval ─▶ Nemotron 3.5 Super VL (OpenRouter) ─▶ answer + citations (stored)
    │
-   └─ voice on ─▶ POST /speech/synthesize ─▶ text must equal a stored assistant answer ─▶ Fish Audio /v1/tts ─▶ audio/mpeg
+   └─ voice on ─▶ POST /speech/synthesize ─▶ text must equal a stored assistant answer ─▶ OpenRouter /audio/speech (Fish Audio S2.1 Pro Free) ─▶ audio/mpeg
 ```
 
 ## Components
@@ -15,9 +15,9 @@ Browser ──record──▶ POST /speech/transcribe ──▶ validate ─▶ 
 | File | Responsibility |
 |---|---|
 | `services/stt_provider.py` | Singleton `WhisperModel`, thread-safe lazy/preloaded load, failure classification + retry cooldown, `asyncio.Semaphore` + bounded queue, dedicated executor, cooperative deadline while consuming the segment generator |
-| `services/audio_validation.py` | Magic-byte sniffing (webm/ogg/wav/mp3/m4a/flac), PyAV decode-probe, duration limits (counts samples when MediaRecorder WebM has no duration header) |
+| `services/audio_validation.py` | Magic-byte sniffing, then `load_audio`: one PyAV pass that validates, bounds duration/memory and returns 16 kHz mono float32. The model receives this array, so faster-whisper's own `decode_audio` (which crashes with some PyAV versions) is never used |
 | `routers/speech.py` | Streaming size-capped upload to a temp file, always cleaned up; `/status`; `/transcribe`; `/synthesize` |
-| `services/tts_provider.py` | Fish Audio client: `POST {base}/v1/tts`, `Authorization: Bearer`, `model` header, JSON `{text, format, reference_id?}`; maps 401/402/422/429/5xx/timeouts/empty/non-audio to typed errors |
+| `services/tts_provider.py` | Default `OpenRouterTTS`: `POST {OPENROUTER_BASE_URL}/audio/speech` with `{model:"fish-audio/s2.1-pro-free", input, voice?, response_format:"mp3"}`. Alternative `FishAudioTTS`: `POST api.fish.audio/v1/tts` (needs a Fish key). Both map 401/402/403/404/429/5xx/timeouts/empty/non-audio to typed errors that include the provider's own reason |
 | `services/speech_text.py` | Deterministic markdown → speakable text; hash used to match spoken text to stored answers |
 | `services/rag.py`, `chat_service.py` | Section-aware chunks, BM25, evidence status (`grounded/partial/uncertain`); unsupported questions return the KB no-answer text **without calling the LLM** |
 | `middleware.py` | Pure-ASGI body-size limit per route (counts bytes even without Content-Length) |
