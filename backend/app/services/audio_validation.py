@@ -1,7 +1,10 @@
 """Content-based audio validation. Filename and MIME type are never trusted."""
+import logging
 from pathlib import Path
 
 from app.errors import AppError
+
+log = logging.getLogger("northstar.audio")
 
 # (label, test) over the first bytes of the file
 _SIGNATURES = [
@@ -22,37 +25,56 @@ def sniff_audio_type(header: bytes) -> str | None:
     return None
 
 
-def probe_audio(path: Path, max_seconds: float, min_seconds: float) -> float:
-    """Decode-probe the file; return duration in seconds. Raises AppError on bad audio.
+def _frames(resampler, frame):
+    out = resampler.resample(frame)
+    return out if isinstance(out, (list, tuple)) else ([] if out is None else [out])
 
-    MediaRecorder WebM often has no duration header, so we count decoded samples and
-    abort as soon as the limit is exceeded (bounds CPU/memory before Whisper runs).
+
+def load_audio(path: Path, max_seconds: float, min_seconds: float):
+    """Decode any supported file to 16 kHz mono float32 using PyAV directly.
+
+    We do this ourselves (instead of letting faster-whisper open the file) because some
+    faster-whisper / PyAV version combinations crash inside faster_whisper.audio.decode_audio.
+    One pass validates the file, bounds duration/memory, and produces the model input.
+    Returns (audio, duration_seconds). Raises AppError for bad input.
     """
     try:
         import av
-    except ImportError as exc:  # faster-whisper depends on PyAV, so this is unexpected
-        raise AppError(503, "stt_dependency_missing", "Audio decoding library (PyAV) is not installed.") from exc
+        import numpy as np
+        from av.audio.resampler import AudioResampler
+    except ImportError as exc:
+        raise AppError(503, "stt_dependency_missing", "Audio libraries (av, numpy) are not installed.") from exc
 
+    limit = int(max_seconds * 16000)
+    chunks, total = [], 0
     try:
+        resampler = AudioResampler(format="s16", layout="mono", rate=16000)
         with av.open(str(path)) as container:
-            stream = next((s for s in container.streams if s.type == "audio"), None)
+            stream = next((st for st in container.streams if st.type == "audio"), None)
             if stream is None:
                 raise AppError(422, "unsupported_media", "The file contains no audio track.")
-            duration = float(container.duration) / 1_000_000 if container.duration else None
-            if duration is not None and duration > max_seconds:
+            if container.duration and container.duration / 1_000_000 > max_seconds * 1.05:
                 raise AppError(413, "audio_too_long", f"Recording exceeds the {int(max_seconds)}s limit.")
-            if duration is None or duration <= 0:
-                total = 0.0
-                for frame in container.decode(stream):
-                    total += frame.samples / float(frame.sample_rate or 16000)
-                    if total > max_seconds:
+            for frame in container.decode(stream):
+                for rf in _frames(resampler, frame):
+                    arr = rf.to_ndarray().reshape(-1)
+                    total += arr.size
+                    if total > limit:
                         raise AppError(413, "audio_too_long", f"Recording exceeds the {int(max_seconds)}s limit.")
-                duration = total
+                    chunks.append(arr)
+            for rf in _frames(resampler, None):
+                chunks.append(rf.to_ndarray().reshape(-1))
+                total += chunks[-1].size
     except AppError:
         raise
     except Exception as exc:  # corrupted / truncated / undecodable
+        log.warning("audio decode failed: %s", type(exc).__name__)
         raise AppError(422, "invalid_audio", "The audio could not be decoded. It may be corrupted.") from exc
 
+    if not chunks or total == 0:
+        raise AppError(422, "empty_audio", "The recording is empty or too short.")
+    audio = np.concatenate(chunks).astype(np.float32) / 32768.0
+    duration = len(audio) / 16000
     if duration < min_seconds:
         raise AppError(422, "empty_audio", "The recording is empty or too short.")
-    return duration
+    return audio, duration
