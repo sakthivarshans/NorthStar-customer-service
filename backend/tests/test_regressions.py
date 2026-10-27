@@ -306,3 +306,9 @@ def test_hint_can_be_disabled(make_client, settings):
 def test_non_en_model_names_still_transcribe_english(settings):
     stt = FasterWhisperSTT(settings.model_copy(update={"stt_model": "distil-large-v3"}), FakeWhisper)
     assert stt._language() == "en"  # distil-large-v3 has no ".en" suffix but STT_LANGUAGE=en is honoured
+
+
+def test_huggingface_symlink_warning_is_silenced_by_default():
+    import os
+    import app.config  # noqa: F401
+    assert os.environ.get("HF_HUB_DISABLE_SYMLINKS_WARNING") == "1"
