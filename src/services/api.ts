@@ -96,8 +96,12 @@ class NorthstarApiClient {
 
   /** Single HTTP dispatcher: timeout, JSON/multipart bodies, structured errors. */
   private async http(endpoint: string, init: RequestInit & { timeoutMs?: number; json?: unknown } = {}): Promise<Response> {
-    const { timeoutMs = TIMEOUTS.short, json, headers, ...rest } = init;
+    const { timeoutMs = TIMEOUTS.short, json, headers, signal: external, ...rest } = init;
     const controller = new AbortController();
+    if (external) {
+      if (external.aborted) controller.abort();
+      else external.addEventListener('abort', () => controller.abort(), { once: true });
+    }
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const finalHeaders: Record<string, string> = { ...this.authHeaders(), ...(headers as Record<string, string>) };
     if (json !== undefined) finalHeaders['Content-Type'] = 'application/json';
@@ -119,6 +123,9 @@ class NorthstarApiClient {
     } catch (err: unknown) {
       if (err instanceof ApiServiceError) throw err;
       const aborted = err instanceof Error && err.name === 'AbortError';
+      if (aborted && external?.aborted) {
+        throw new ApiServiceError('Request cancelled.', endpoint, undefined, false, 'aborted');
+      }
       throw new ApiServiceError(
         aborted
           ? `The request to ${endpoint} timed out after ${Math.round(timeoutMs / 1000)}s.`
@@ -252,12 +259,12 @@ class NorthstarApiClient {
 
   // ---- Speech ----------------------------------------------------------
   /** POST /speech/transcribe — local Faster-Whisper (base.en) on the backend. */
-  public async transcribeAudio(file: Blob | File): Promise<TranscriptionResponse> {
+  public async transcribeAudio(file: Blob | File, signal?: AbortSignal): Promise<TranscriptionResponse> {
     if (this.mode !== 'live') this.requireLive('/speech/transcribe', 'Voice input (local Faster-Whisper)');
     const ext = file.type.includes('ogg') ? 'ogg' : file.type.includes('mp4') ? 'm4a' : file.type.includes('wav') ? 'wav' : 'webm';
     const form = new FormData();
     form.append('file', file, `recording.${ext}`);
-    const data = await this.getJson<TranscriptionResponse>('/speech/transcribe', { method: 'POST', body: form, timeoutMs: TIMEOUTS.transcribe });
+    const data = await this.getJson<TranscriptionResponse>('/speech/transcribe', { method: 'POST', body: form, timeoutMs: TIMEOUTS.transcribe, signal });
     return { ...data, text: (data.text || '').trim() };
   }
 
