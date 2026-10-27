@@ -265,3 +265,44 @@ async def test_non_404_errors_do_not_trigger_model_switching():
     with pytest.raises(AppError) as e:
         await or_tts(h).synthesize("hi")
     assert e.value.code == "tts_quota_exceeded" and len(calls) == 1
+
+
+# ---------- accuracy helpers ----------
+def test_vocabulary_hint_is_sent_and_echo_on_silence_is_discarded(make_client, settings):
+    seen = {}
+
+    class Echo(FakeWhisper):
+        def transcribe(self, audio, **kw):
+            seen.update(kw)
+            self.text = "Northstar Workspace customer support."  # Whisper hallucinating the hint
+            return super().transcribe(audio, **kw)
+
+    c, _ = make_client(stt=FasterWhisperSTT(settings, Echo))
+    r = c.post(URL, files={"file": ("a.wav", make_wav(2))})
+    assert "Northstar" in seen["initial_prompt"]
+    assert r.status_code == 422 and r.json()["code"] == "no_speech_detected"
+
+
+def test_real_speech_with_hint_is_returned_normally(make_client):
+    c, _ = make_client()
+    r = c.post(URL, files={"file": ("a.wav", make_wav(2))})
+    assert r.status_code == 200 and r.json()["text"] == "How much is the Professional plan"
+
+
+def test_hint_can_be_disabled(make_client, settings):
+    seen = {}
+
+    class Spy(FakeWhisper):
+        def transcribe(self, audio, **kw):
+            seen.update(kw)
+            return super().transcribe(audio, **kw)
+
+    st = settings.model_copy(update={"stt_initial_prompt": ""})
+    c, _ = make_client(stt=FasterWhisperSTT(st, Spy))
+    assert c.post(URL, files={"file": ("a.wav", make_wav(2))}).status_code == 200
+    assert seen["initial_prompt"] is None
+
+
+def test_non_en_model_names_still_transcribe_english(settings):
+    stt = FasterWhisperSTT(settings.model_copy(update={"stt_model": "distil-large-v3"}), FakeWhisper)
+    assert stt._language() == "en"  # distil-large-v3 has no ".en" suffix but STT_LANGUAGE=en is honoured
