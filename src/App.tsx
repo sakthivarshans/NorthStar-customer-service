@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ActiveTab, ChatMessage, Conversation, SourceCitation, VoicePreferences } from './types';
+import { markAutoSpeak } from './services/autoSpeak';
 import { apiService, ApiServiceError } from './services/api';
 import { AppLayout } from './components/layout/AppLayout';
 import { SupportHome } from './components/support/SupportHome';
@@ -148,6 +149,7 @@ export default function App() {
         messages: finalMessages
       };
 
+      if (apiService.getMode() === 'live') markAutoSpeak(assistantMessage.id); // speak only this fresh answer
       setCurrentConversation(finalConv);
       await apiService.saveDemoConversation(finalConv);
     } catch (err: unknown) {
