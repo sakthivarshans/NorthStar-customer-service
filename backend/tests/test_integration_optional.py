@@ -18,7 +18,7 @@ def test_real_whisper_loads_and_runs(tmp_path):
     p.write_bytes(make_wav(2))
     import time
     res = stt.transcribe_file(p, time.monotonic() + 120)  # a tone has no speech; we only prove inference runs
-    assert res.model == "base.en" and res.inference_time_ms >= 0
+    assert res.model == Settings().stt_model and res.inference_time_ms >= 0
 
 
 @pytest.mark.integration_tts
