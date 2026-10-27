@@ -115,15 +115,13 @@ class FasterWhisperSTT:
             return "en"  # English-only checkpoints cannot do other languages
         return lang
 
-    def transcribe_file(self, path: Path, deadline: float) -> TranscriptionResult:
-        self.load()
-        t0 = time.monotonic()
+    def _run(self, audio, vad: bool, deadline: float):
         try:
             segments_iter, info = self._model.transcribe(
-                str(path),
+                audio,
                 language=self._language(),
                 beam_size=self.s.stt_beam_size,
-                vad_filter=self.s.stt_vad_filter,
+                vad_filter=vad,
                 vad_parameters={"min_silence_duration_ms": 500},
                 condition_on_previous_text=False,
             )
@@ -132,6 +130,7 @@ class FasterWhisperSTT:
                 if time.monotonic() > deadline:
                     raise AppError(504, "stt_timeout", "Transcription timed out.")
                 segments.append(Segment(round(seg.start, 2), round(seg.end, 2), seg.text.strip()))
+            return segments, info
         except AppError:
             raise
         except MemoryError as exc:
@@ -139,19 +138,33 @@ class FasterWhisperSTT:
         except Exception as exc:
             if "out of memory" in str(exc).lower():
                 raise AppError(503, "stt_out_of_memory", "Not enough memory to transcribe this recording.") from exc
-            raise AppError(422, "invalid_audio", "The audio could not be transcribed. It may be corrupted.") from exc
+            # NOT the audio's fault (decoding already succeeded): report it honestly.
+            log.error("Whisper inference failed: %s: %s", type(exc).__name__, str(exc)[:200])
+            raise AppError(500, "stt_inference_failed", f"Speech recognition failed inside the model ({type(exc).__name__}). See server logs.") from exc
 
-        text = " ".join(s.text for s in segments if s.text).strip()
+    def transcribe_file(self, audio, deadline: float) -> TranscriptionResult:
+        """`audio` is a 16 kHz mono float32 array (or a file path, decoded here)."""
+        if not hasattr(audio, "shape"):
+            from app.services.audio_validation import load_audio
+
+            audio, _ = load_audio(Path(audio), self.s.stt_max_duration_seconds, self.s.stt_min_duration_seconds)
+        self.load()
+        t0 = time.monotonic()
+        segments, info = self._run(audio, self.s.stt_vad_filter, deadline)
+        if not any(g.text for g in segments) and self.s.stt_vad_filter:
+            # VAD can discard quiet/short speech entirely; retry once without it before giving up.
+            segments, info = self._run(audio, False, deadline)
+        text = " ".join(g.text for g in segments if g.text).strip()
         return TranscriptionResult(
             text=text,
             language=getattr(info, "language", None) or self._language() or "en",
-            duration=round(float(getattr(info, "duration", 0.0) or 0.0), 2),
+            duration=round(len(audio) / 16000, 2),
             model=self.s.stt_model,
             inference_time_ms=int((time.monotonic() - t0) * 1000),
             segments=segments,
         )
 
-    async def transcribe(self, path: Path) -> TranscriptionResult:
+    async def transcribe(self, audio) -> TranscriptionResult:
         if self._waiting >= self.s.stt_max_queue:
             raise AppError(429, "stt_busy", "Transcription is busy. Please retry shortly.", {"Retry-After": "5"})
         self._waiting += 1
@@ -161,7 +174,7 @@ class FasterWhisperSTT:
             self._waiting -= 1
         loop = asyncio.get_running_loop()
         deadline = time.monotonic() + self.s.stt_timeout_seconds
-        fut = loop.run_in_executor(self._executor, self.transcribe_file, path, deadline)
+        fut = loop.run_in_executor(self._executor, self.transcribe_file, audio, deadline)
         # Release the slot only when the worker really finishes, so timeouts cannot pile up CPU work.
         fut.add_done_callback(lambda _f: self._sem.release())
         try:
