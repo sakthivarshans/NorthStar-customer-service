@@ -133,12 +133,45 @@ class OpenRouterTTS(_BaseTTS):
     key_env = "OPENROUTER_API_KEY"
     fmt = "mp3"  # OpenRouter speech supports mp3 | pcm
 
+    def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None):
+        super().__init__(settings, client)
+        self._active: str | None = None  # the slug that last worked
+
     api_key = property(lambda self: self.s.openrouter_api_key)
-    model = property(lambda self: self.s.tts_model)
-    label = property(lambda self: f"OpenRouter / {self.s.tts_model}")
+    model = property(lambda self: self._active or self.s.tts_model)
+    label = property(lambda self: f"OpenRouter / {self.model}")
+
+    def candidate_models(self) -> list[str]:
+        """Configured slug, then its ':free' / non-':free' twin (OpenRouter lists this free model under
+        a ':free' slug), then any TTS_MODEL_FALLBACKS. A slug that worked before is tried first."""
+        cfg = self.s.tts_model.strip()
+        twin = cfg[: -len(":free")] if cfg.endswith(":free") else cfg + ":free"
+        extra = [m.strip() for m in self.s.tts_model_fallbacks.split(",") if m.strip()]
+        order = ([self._active] if self._active else []) + [cfg, twin] + extra
+        return list(dict.fromkeys(m for m in order if m))
+
+    async def synthesize(self, text: str, voice_id: str | None = None) -> AudioResult:
+        tried: list[str] = []
+        last: AppError | None = None
+        for slug in self.candidate_models():
+            self._active = slug
+            tried.append(slug)
+            try:
+                return await super().synthesize(text, voice_id)
+            except AppError as exc:
+                if exc.code != "tts_model_not_found":
+                    raise  # auth/credit/rate-limit errors are not fixed by changing the model
+                last = exc
+        self._active = None
+        raise AppError(
+            502, "tts_model_not_found",
+            f"OpenRouter has no TTS endpoint for: {', '.join(tried)}. The free promo may be unavailable right now. "
+            "Options: set TTS_MODEL=fish-audio/s2.1-pro (paid, needs credits), or check "
+            f"openrouter.ai/settings/privacy. {last.message.split('Provider said:')[-1].strip() if last else ''}".strip(),
+        )
 
     def build_request(self, text, voice_id):
-        body: dict = {"model": self.s.tts_model, "input": text, "response_format": "mp3"}
+        body: dict = {"model": self.model, "input": text, "response_format": "mp3"}
         if voice_id:
             body["voice"] = voice_id
         headers = {
