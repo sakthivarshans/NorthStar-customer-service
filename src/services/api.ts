@@ -16,7 +16,7 @@ export const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http:/
 
 const STORAGE_KEYS = {
   CONVERSATIONS: 'northstar_conversations',
-  VOICE_PREFERENCES: 'northstar_voice_preferences',
+  VOICE_PREFERENCES: 'northstar_voice_preferences_v2', // v2: auto-speak answers is now on by default
   API_BASE_OVERRIDE: 'northstar_api_base_override',
   MODE: 'northstar_app_mode',
   ACCESS_KEY: 'northstar_api_key'
@@ -43,7 +43,7 @@ export class ApiServiceError extends Error {
 
 export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
   voiceResponsesEnabled: true,
-  autoPlayResponses: false,
+  autoPlayResponses: true, // speak each new answer automatically (needs a Fish Audio key / OpenRouter TTS)
   autoSubmitTranscript: false,
   preferredVoiceId: 'default', // 'default' = provider default voice; approved voices come from /speech/status
   maxRecordingSeconds: 60
