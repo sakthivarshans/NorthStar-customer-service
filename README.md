@@ -8,7 +8,7 @@ Grounded customer-support assistant for **Northstar Workspace** (fictional demo 
 | Backend | FastAPI (`/backend`) |
 | LLM | **NVIDIA Nemotron 3.5 Super VL (free)** via OpenRouter, model `nvidia/nemotron-3.5-super-vl:free` |
 | RAG | Section-aware chunking + BM25 over `backend/data/knowledge/` (no embedding service) |
-| STT | **Faster-Whisper `distil-large-v3`** (English, recommended; ~1.5 GB, downloaded once), running locally inside the backend, no API key. Switch with `STT_MODEL` (`small.en` for weak PCs, `large-v3-turbo` for multilingual) |
+| STT | **Faster-Whisper `small.en`** (English; ~0.5 GB, downloaded once), running locally inside the backend, no API key. Larger models are far more accurate but slow on a CPU: measure with `python scripts/benchmark_stt.py`, switch with `STT_MODEL` |
 | TTS | **Fish Audio S2.1 Pro Free** (`fish-audio/s2.1-pro-free`) through OpenRouter's `/audio/speech`, using the same `OPENROUTER_API_KEY` (native Fish API also supported) |
 
 Voice flow: record → `POST /speech/transcribe` (local Whisper) → transcript shown for **review/edit** → customer submits through the normal `POST /chat` → retrieval + Nemotron produce a cited answer → optional `POST /speech/synthesize` speaks *that same answer*. There is one chat pipeline; voice never bypasses it. See [docs/SPEECH_ARCHITECTURE.md](docs/SPEECH_ARCHITECTURE.md).
@@ -72,7 +72,7 @@ Errors are always `{"detail": "...", "code": "..."}` (e.g. `stt_model_download_f
 All settings are in `backend/.env.example`. Key ones:
 
 ```
-STT_PROVIDER=faster_whisper_local   STT_MODEL=distil-large-v3   STT_DEVICE=cpu   STT_COMPUTE_TYPE=int8   STT_LANGUAGE=en
+STT_PROVIDER=faster_whisper_local   STT_MODEL=small.en   STT_DEVICE=cpu   STT_COMPUTE_TYPE=int8   STT_LANGUAGE=en
 OPENROUTER_API_KEY=       LLM_MODEL=nvidia/nemotron-3.5-super-vl:free
 TTS_PROVIDER=openrouter   TTS_MODEL=fish-audio/s2.1-pro-free:free   # same key as above; the app also tries the name without :free
 STT_BEAM_SIZE=1           # fast on CPU; 5 = a bit more accurate
@@ -111,7 +111,8 @@ npm run lint && npm test && npm run build                            # frontend 
 | `stt_model_download_failed` | No internet on first run and no cache. Run `scripts/download_model.py` on a connected machine, or copy the cache folder; set `STT_LOCAL_FILES_ONLY=true` offline. |
 | `stt_out_of_memory` | Use `STT_MODEL=tiny.en`, keep `STT_MAX_CONCURRENCY=1`, close other apps. |
 | `stt_dependency_missing` | `pip install -r requirements.txt` in the active venv. |
-| Wrong / garbled transcript | `base.en` is too small for real speech. Use `STT_MODEL=distil-large-v3` (then `python scripts/download_model.py`). Also check the browser's microphone input and speak 10–20 cm from the mic. |
+| Wrong / garbled transcript | `base.en` is too small for real speech. Use `small.en` (default) or `distil-medium.en`, then `python scripts/download_model.py`. Check the microphone level and speak 10–20 cm from the mic. |
+| Transcription takes minutes | The model is too big for your CPU: Whisper always processes a 30-second window, so a large model costs the same for a 3-second question (`distil-large-v3` can take 45–90 s on a laptop). Use `small.en`; run `python scripts/benchmark_stt.py` to compare on your machine; check `stt_warmup_ms` in `/speech/status`. The server now stops after `STT_TIMEOUT_SECONDS` (60) with a clear message and skips recordings your browser already abandoned. |
 | Slow transcription | CPU `int8` is the default. Lower `STT_BEAM_SIZE` to 1–3, use `tiny.en`, or move to a GPU (`cuda`/`float16`). Expect the first request after startup to be slowest. |
 | `stt_busy` (429) | More than `STT_MAX_QUEUE` requests waiting; retry after the `Retry-After` seconds. |
 | `no_speech_detected` | Silence. The server already retries without the voice-activity filter; check the browser's microphone input level. |
