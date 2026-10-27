@@ -312,3 +312,116 @@ def test_huggingface_symlink_warning_is_silenced_by_default():
     import os
     import app.config  # noqa: F401
     assert os.environ.get("HF_HUB_DISABLE_SYMLINKS_WARNING") == "1"
+
+
+# ---------- speed / "3 minutes and no transcript" ----------
+import asyncio
+import threading
+import time as _time
+
+
+def _np_audio(seconds=2.0, amp=0.2):
+    return (amp * np.sin(2 * np.pi * 440 * np.arange(int(16000 * seconds)) / 16000)).astype(np.float32)
+
+
+def test_default_model_is_cpu_friendly_and_timeout_is_bounded():
+    s = Settings()
+    assert s.stt_model == "small.en" and s.stt_timeout_seconds <= 60 and s.stt_temperature_fallback is False
+
+
+def test_model_gets_cpu_threads_and_single_greedy_pass(settings):
+    seen = {}
+
+    class Spy(FakeWhisper):
+        def __init__(self, name, **kw):
+            seen["init"] = kw
+            super().__init__(name, **kw)
+
+        def transcribe(self, audio, **kw):
+            seen["kw"] = kw
+            return super().transcribe(audio, **kw)
+
+    stt = FasterWhisperSTT(settings, Spy)
+    stt.transcribe_file(_np_audio(), _time.monotonic() + 30)
+    assert seen["init"]["cpu_threads"] >= 4
+    assert seen["kw"]["temperature"] == 0.0  # no slow multi-temperature re-decoding
+    assert seen["kw"]["beam_size"] == 1
+
+
+def test_silent_recording_skips_the_model_entirely(settings):
+    class MustNotRun(FakeWhisper):
+        def transcribe(self, *a, **k):
+            raise AssertionError("model must not run on silence")
+
+    stt = FasterWhisperSTT(settings, MustNotRun)
+    res = stt.transcribe_file(np.zeros(32000, dtype=np.float32), _time.monotonic() + 30)
+    assert res.text == "" and res.inference_time_ms == 0
+
+
+def test_silence_endpoint_returns_no_speech_fast(make_client, settings):
+    c, _ = make_client(stt=FasterWhisperSTT(settings, FakeWhisper))
+    silent = make_wav(2).__class__()  # placeholder to keep type checkers quiet
+    import struct, wave, io
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1), w.setsampwidth(2), w.setframerate(16000)
+        w.writeframes(struct.pack("<h", 0) * 32000)
+    r = c.post(URL, files={"file": ("s.wav", buf.getvalue())})
+    assert r.status_code == 422 and r.json()["code"] == "no_speech_detected"
+
+
+def test_warmup_runs_once_and_is_reported(make_client, settings):
+    stt = FasterWhisperSTT(settings, FakeWhisper)
+    c, _ = make_client(stt=stt)
+    stt.warmup()
+    assert stt.warmup_ms is not None and stt.ready
+    assert c.get("/api/v1/speech/status").json()["stt_warmup_ms"] == stt.warmup_ms
+
+
+async def test_abandoned_queued_jobs_never_run(tmp_path):
+    ran = []
+
+    class Slow(FakeWhisper):
+        def transcribe(self, audio, **kw):
+            ran.append(1)
+            _time.sleep(0.3)
+            return super().transcribe(audio, **kw)
+
+    s = Settings(data_dir=tmp_path, stt_max_concurrency=1, stt_max_queue=5)
+    stt = FasterWhisperSTT(s, Slow)
+    stt.load()
+    first = asyncio.create_task(stt.transcribe(_np_audio()))
+    await asyncio.sleep(0.05)
+    gone = threading.Event()
+    second = asyncio.create_task(stt.transcribe(_np_audio(), gone))  # queued behind `first`
+    await asyncio.sleep(0.05)
+    gone.set()  # the browser gave up on it (e.g. user clicked retry)
+    assert (await first).text
+    with pytest.raises(AppError) as e:
+        await second
+    assert e.value.code == "client_cancelled" and len(ran) == 1  # the model ran only for the first one
+
+
+def test_slow_model_times_out_with_actionable_message(settings):
+    class Slow(FakeWhisper):
+        def transcribe(self, audio, **kw):
+            def gen():
+                _time.sleep(0.2)
+                yield SimpleNamespace(start=0.0, end=1.0, text="late")
+            return gen(), SimpleNamespace(language="en", duration=1.0)
+
+    stt = FasterWhisperSTT(settings, Slow)
+    with pytest.raises(AppError) as e:
+        stt.transcribe_file(_np_audio(), _time.monotonic() + 0.05)
+    assert e.value.status_code == 504 and "STT_MODEL=small.en" in e.value.message
+
+
+def test_benchmark_script_reports_each_model(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("bench", Path(__file__).resolve().parents[1] / "scripts" / "benchmark_stt.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    (tmp_path / "a.wav").write_bytes(make_wav(2))
+    lines = []
+    rows = mod.bench(["small.en", "base.en"], tmp_path / "a.wav", Settings(stt_initial_prompt=""), FakeWhisper, lines.append)
+    assert [r[0] for r in rows] == ["small.en", "base.en"] and all(r[3] for r in rows)
+    assert any("Fastest-acceptable" in l for l in lines)
